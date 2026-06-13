@@ -1,0 +1,243 @@
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Ban, CheckCircle2, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react';
+import { api, ApiError } from '../lib/api';
+import { loadSession } from '../lib/auth';
+import { PageHead } from '../components/Layout';
+import { Panel, Pagination, SearchInput } from '../components/widgets';
+import { Mono } from '../components/primitives';
+import type { Role } from '../lib/types';
+
+const ROLES: Role[] = ['CUSTOMER', 'APPROVER', 'OPS', 'ADMIN'];
+const PAGE_SIZE = 10;
+
+const ROLE_HEX: Record<string, string> = {
+  ADMIN: '#a371f7',
+  OPS: '#4cc2d6',
+  APPROVER: '#d29922',
+  CUSTOMER: '#5c6773',
+};
+
+export default function AdminUsers() {
+  const session = loadSession();
+  const isAdmin = session?.roles?.includes('ADMIN') ?? false;
+  const me = session?.sub;
+
+  const qc = useQueryClient();
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ username: '', password: '', role: 'OPS' as Role, account_id: '' });
+  const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  const users = useQuery({ queryKey: ['admin-users'], queryFn: api.admin.users, enabled: isAdmin });
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ['admin-users'] });
+  const fail = (e: unknown) =>
+    setBanner({ kind: 'err', text: e instanceof ApiError ? `Failed (${e.status}).` : 'Action failed.' });
+
+  const createMut = useMutation({
+    mutationFn: () =>
+      api.admin.createUser({
+        username: form.username.trim(),
+        password: form.password,
+        role: form.role,
+        account_id: form.role === 'CUSTOMER' && form.account_id.trim() ? form.account_id.trim() : undefined,
+      }),
+    onSuccess: (u) => {
+      setBanner({ kind: 'ok', text: `Created ${u.username}.` });
+      setForm({ username: '', password: '', role: 'OPS', account_id: '' });
+      setShowCreate(false);
+      refresh();
+    },
+    onError: fail,
+  });
+  const roleMut = useMutation({
+    mutationFn: ({ username, role }: { username: string; role: string }) => api.admin.assignRole(username, role),
+    onSuccess: (u) => { setBanner({ kind: 'ok', text: `${u.username} → ${u.roles.join(', ')}` }); refresh(); },
+    onError: fail,
+  });
+  const enableMut = useMutation({
+    mutationFn: ({ username, enabled }: { username: string; enabled: boolean }) => api.admin.setEnabled(username, enabled),
+    onSuccess: (u) => { setBanner({ kind: 'ok', text: `${u.username} ${u.enabled ? 'enabled' : 'disabled'}.` }); refresh(); },
+    onError: fail,
+  });
+  const deleteMut = useMutation({
+    mutationFn: (username: string) => api.admin.deleteUser(username),
+    onSuccess: () => { setBanner({ kind: 'ok', text: 'User deleted.' }); refresh(); },
+    onError: fail,
+  });
+
+  const rows = users.data ?? [];
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    return rows
+      .filter((u) => !q || [u.username, u.account_id, ...(u.roles ?? [])].filter(Boolean).join(' ').toLowerCase().includes(q))
+      .sort((a, b) => a.username.localeCompare(b.username));
+  }, [rows, query]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  if (!isAdmin) {
+    return (
+      <div>
+        <PageHead eyebrow="Administration" title="User management" />
+        <div className="px-8 py-16 text-center text-muted text-[13px]">
+          <Shield size={20} className="mx-auto mb-3 text-muted" />
+          Restricted to ADMIN. You are signed in as <Mono className="text-fg-2">{me}</Mono>.
+        </div>
+      </div>
+    );
+  }
+
+  const busy = createMut.isPending || roleMut.isPending || enableMut.isPending || deleteMut.isPending;
+
+  return (
+    <div>
+      <PageHead
+        eyebrow="Administration"
+        title="User management"
+        right={
+          <div className="flex items-center gap-3">
+            <SearchInput value={query} onChange={(v) => { setQuery(v); setPage(1); }} placeholder="user · role · account…" />
+            <button
+              onClick={() => setShowCreate((v) => !v)}
+              className="flex items-center gap-1.5 text-[12px] font-semibold text-ink bg-cyan hover:bg-cyan/90 rounded px-3 py-1.5"
+            >
+              {showCreate ? <X size={14} /> : <Plus size={14} />} {showCreate ? 'Close' : 'New user'}
+            </button>
+          </div>
+        }
+      />
+
+      <div className="px-8 py-6 space-y-4">
+        {banner && (
+          <div
+            className={`flex items-center justify-between rounded-lg border px-3.5 py-2 text-[12px] ${
+              banner.kind === 'ok' ? 'text-allow bg-allow/10 border-allow/30' : 'text-block bg-block/10 border-block/30'
+            }`}
+          >
+            <span className="font-mono">{banner.text}</span>
+            <button onClick={() => setBanner(null)} className="text-muted hover:text-fg"><X size={13} /></button>
+          </div>
+        )}
+
+        {showCreate && (
+          <Panel title="Create user">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              <Field label="Username">
+                <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} className={inputCls} placeholder="j.okafor" />
+              </Field>
+              <Field label="Password">
+                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={inputCls} placeholder="min 4 chars" />
+              </Field>
+              <Field label="Role">
+                <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })} className={inputCls}>
+                  {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </Field>
+              <Field label="Account (CUSTOMER)">
+                <input value={form.account_id} onChange={(e) => setForm({ ...form, account_id: e.target.value })} disabled={form.role !== 'CUSTOMER'} className={`${inputCls} disabled:opacity-40`} placeholder="acc-A" />
+              </Field>
+              <button
+                onClick={() => createMut.mutate()}
+                disabled={busy || form.username.trim().length < 3 || form.password.length < 4}
+                className="flex items-center justify-center gap-1.5 h-[38px] text-[12px] font-semibold text-ink bg-allow hover:bg-allow/90 rounded px-3 disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                <UserPlus size={14} /> Create
+              </button>
+            </div>
+          </Panel>
+        )}
+
+        <Panel title="Users" right={<span className="font-mono text-[10.5px] text-muted">{filtered.length} users</span>}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12.5px]">
+              <thead>
+                <tr className="text-left font-mono text-[10px] tracking-[0.08em] uppercase text-muted border-b border-line">
+                  <th className="py-2 pr-3 font-medium">User</th>
+                  <th className="py-2 pr-3 font-medium">Role</th>
+                  <th className="py-2 pr-3 font-medium">Account</th>
+                  <th className="py-2 pr-3 font-medium">Status</th>
+                  <th className="py-2 pr-3 font-medium text-right">Manage</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((u) => {
+                  const self = u.username === me;
+                  const role = u.roles?.[0] ?? 'CUSTOMER';
+                  const hex = ROLE_HEX[role] ?? '#5c6773';
+                  return (
+                    <tr key={u.user_id} className="border-b border-line/60">
+                      <td className="py-2.5 pr-3">
+                        <Mono className="text-fg">{u.username}</Mono>
+                        {self && <span className="ml-1.5 font-mono text-[9px] text-cyan">you</span>}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <select
+                          value={role}
+                          disabled={self || busy}
+                          onChange={(e) => roleMut.mutate({ username: u.username, role: e.target.value })}
+                          className="font-mono text-[11px] rounded border px-1.5 py-0.5 bg-transparent disabled:opacity-60"
+                          style={{ color: hex, borderColor: `${hex}55` }}
+                          title={self ? "can't change your own role" : 'change role'}
+                        >
+                          {ROLES.map((r) => <option key={r} value={r} className="bg-panel text-fg">{r}</option>)}
+                        </select>
+                      </td>
+                      <td className="py-2.5 pr-3"><Mono className="text-fg-2">{u.account_id ?? '—'}</Mono></td>
+                      <td className="py-2.5 pr-3">
+                        {u.enabled ? (
+                          <span className="font-mono text-[10.5px] text-allow">● enabled</span>
+                        ) : (
+                          <span className="font-mono text-[10.5px] text-muted">○ disabled</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <button
+                            onClick={() => enableMut.mutate({ username: u.username, enabled: !u.enabled })}
+                            disabled={self || busy}
+                            title={self ? "can't disable yourself" : u.enabled ? 'disable' : 'enable'}
+                            className="flex items-center gap-1 font-mono text-[10.5px] px-2 py-1 rounded border border-line text-fg-2 hover:text-fg hover:border-line-2 disabled:opacity-35 disabled:cursor-not-allowed"
+                          >
+                            {u.enabled ? <Ban size={12} /> : <CheckCircle2 size={12} />}
+                            {u.enabled ? 'Disable' : 'Enable'}
+                          </button>
+                          <button
+                            onClick={() => { if (confirm(`Delete user ${u.username}?`)) deleteMut.mutate(u.username); }}
+                            disabled={self || busy}
+                            title={self ? "can't delete yourself" : 'delete'}
+                            className="flex items-center gap-1 font-mono text-[10.5px] px-2 py-1 rounded border border-block/40 text-block bg-block/5 hover:bg-block/15 disabled:opacity-35 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 size={12} /> Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <tr><td colSpan={5} className="py-8 text-center text-muted">{users.isLoading ? 'Loading…' : 'No users match.'}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={safePage} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+const inputCls = 'w-full h-[38px] rounded-lg bg-ink border border-line-2 px-3 font-mono text-[12px] text-fg outline-none focus:border-cyan';
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="block font-mono text-[9px] uppercase tracking-wide text-muted mb-1">{label}</span>
+      {children}
+    </label>
+  );
+}

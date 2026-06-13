@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Activity, Award, Network, ShieldCheck, Users, LogOut, Radar } from 'lucide-react';
+import { Activity, Award, Network, ShieldCheck, Users, UserCog, LogOut, Radar } from 'lucide-react';
 import { clearSession, loadSession } from '../lib/auth';
 import type { ReactNode } from 'react';
 
@@ -9,12 +9,15 @@ const NAV = [
   { to: '/accounts', label: 'Accounts', icon: Users },
   { to: '/beneficiaries', label: 'Beneficiaries', icon: Network },
   { to: '/outcomes', label: 'Outcomes', icon: Award },
+  { to: '/admin', label: 'Admin', icon: UserCog, adminOnly: true },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const session = loadSession();
   const role = session?.roles?.[0] ?? 'OPS';
+  const isAdmin = session?.roles?.includes('ADMIN') ?? false;
+  const nav = NAV.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <div className="flex min-h-screen">
@@ -38,7 +41,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex flex-col gap-0.5 mt-4 flex-1">
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {nav.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}

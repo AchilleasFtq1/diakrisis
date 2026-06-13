@@ -150,3 +150,15 @@ export interface Session {
   sub: string;
   roles: string[];
 }
+
+export type Role = 'CUSTOMER' | 'APPROVER' | 'OPS' | 'ADMIN';
+
+/** Admin-safe user projection from IAM (/admin/users). Never carries the password hash. */
+export interface UserView {
+  user_id: string;
+  username: string;
+  roles: string[];
+  account_id?: string | null;
+  enabled: boolean;
+  created_epoch_ms: number;
+}

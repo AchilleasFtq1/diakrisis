@@ -10,6 +10,7 @@ import type {
   OutcomeView,
   Page,
   Session,
+  UserView,
 } from './types';
 
 /** Lifecycle actions an analyst can drive from the console (subset that fits OPS/APPROVER). */
@@ -169,4 +170,21 @@ export const api = {
     request<Page<OutcomeView>>(
       `/ops/outcomes${queryString({ page: params.page, size: params.size, type: params.type })}`,
     ),
+  // ADMIN-only user management (IAM /admin/users, gated to ADMIN at the gateway edge + in IAM).
+  admin: {
+    users: () => request<UserView[]>('/admin/users'),
+    createUser: (body: { username: string; password: string; role?: string; account_id?: string }) =>
+      request<UserView>('/admin/users', { method: 'POST', body: JSON.stringify(body) }),
+    assignRole: (username: string, role: string) =>
+      request<UserView>(`/admin/users/${encodeURIComponent(username)}/roles`, {
+        method: 'POST',
+        body: JSON.stringify({ role }),
+      }),
+    setEnabled: (username: string, enabled: boolean) =>
+      request<UserView>(`/admin/users/${encodeURIComponent(username)}/${enabled ? 'enable' : 'disable'}`, {
+        method: 'POST',
+      }),
+    deleteUser: (username: string) =>
+      request<void>(`/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
+  },
 };
