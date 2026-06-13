@@ -1,15 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, CheckCircle2, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react';
+import { Pencil, Plus, Save, Shield, Trash2, UserPlus, X } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
 import { loadSession } from '../lib/auth';
 import { PageHead } from '../components/Layout';
 import { Panel, Pagination, SearchInput } from '../components/widgets';
 import { Mono } from '../components/primitives';
-import type { Role } from '../lib/types';
+import type { Role, UserView } from '../lib/types';
 
 const ROLES: Role[] = ['CUSTOMER', 'APPROVER', 'OPS', 'ADMIN'];
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 6;
 
 const ROLE_HEX: Record<string, string> = {
   ADMIN: '#a371f7',
@@ -17,6 +17,8 @@ const ROLE_HEX: Record<string, string> = {
   APPROVER: '#d29922',
   CUSTOMER: '#5c6773',
 };
+
+const inputCls = 'w-full h-[38px] rounded-lg bg-ink border border-line-2 px-3 font-mono text-[12px] text-fg outline-none focus:border-cyan';
 
 export default function AdminUsers() {
   const session = loadSession();
@@ -27,10 +29,18 @@ export default function AdminUsers() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ username: '', password: '', role: 'OPS' as Role, account_id: '' });
+  const [createForm, setCreateForm] = useState({ username: '', password: '', role: 'OPS' as Role, account_id: '' });
+  const [editing, setEditing] = useState<UserView | null>(null);
+  const [editForm, setEditForm] = useState({ role: 'OPS', account_id: '', enabled: true });
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const users = useQuery({ queryKey: ['admin-users'], queryFn: api.admin.users, enabled: isAdmin });
+
+  useEffect(() => {
+    if (editing) {
+      setEditForm({ role: editing.roles?.[0] ?? 'CUSTOMER', account_id: editing.account_id ?? '', enabled: editing.enabled });
+    }
+  }, [editing]);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['admin-users'] });
   const fail = (e: unknown) =>
@@ -39,27 +49,31 @@ export default function AdminUsers() {
   const createMut = useMutation({
     mutationFn: () =>
       api.admin.createUser({
-        username: form.username.trim(),
-        password: form.password,
-        role: form.role,
-        account_id: form.role === 'CUSTOMER' && form.account_id.trim() ? form.account_id.trim() : undefined,
+        username: createForm.username.trim(),
+        password: createForm.password,
+        role: createForm.role,
+        account_id: createForm.role === 'CUSTOMER' && createForm.account_id.trim() ? createForm.account_id.trim() : undefined,
       }),
     onSuccess: (u) => {
       setBanner({ kind: 'ok', text: `Created ${u.username}.` });
-      setForm({ username: '', password: '', role: 'OPS', account_id: '' });
+      setCreateForm({ username: '', password: '', role: 'OPS', account_id: '' });
       setShowCreate(false);
       refresh();
     },
     onError: fail,
   });
-  const roleMut = useMutation({
-    mutationFn: ({ username, role }: { username: string; role: string }) => api.admin.assignRole(username, role),
-    onSuccess: (u) => { setBanner({ kind: 'ok', text: `${u.username} → ${u.roles.join(', ')}` }); refresh(); },
-    onError: fail,
-  });
-  const enableMut = useMutation({
-    mutationFn: ({ username, enabled }: { username: string; enabled: boolean }) => api.admin.setEnabled(username, enabled),
-    onSuccess: (u) => { setBanner({ kind: 'ok', text: `${u.username} ${u.enabled ? 'enabled' : 'disabled'}.` }); refresh(); },
+  const updateMut = useMutation({
+    mutationFn: () =>
+      api.admin.updateUser(editing!.username, {
+        role: editForm.role,
+        enabled: editForm.enabled,
+        account_id: editForm.account_id.trim() ? editForm.account_id.trim() : undefined,
+      }),
+    onSuccess: (u) => {
+      setBanner({ kind: 'ok', text: `Updated ${u.username} → ${u.roles.join(', ')}${u.enabled ? '' : ' (disabled)'}` });
+      setEditing(null);
+      refresh();
+    },
     onError: fail,
   });
   const deleteMut = useMutation({
@@ -91,7 +105,8 @@ export default function AdminUsers() {
     );
   }
 
-  const busy = createMut.isPending || roleMut.isPending || enableMut.isPending || deleteMut.isPending;
+  const busy = createMut.isPending || updateMut.isPending || deleteMut.isPending;
+  const editingSelf = editing?.username === me;
 
   return (
     <div>
@@ -102,7 +117,7 @@ export default function AdminUsers() {
           <div className="flex items-center gap-3">
             <SearchInput value={query} onChange={(v) => { setQuery(v); setPage(1); }} placeholder="user · role · account…" />
             <button
-              onClick={() => setShowCreate((v) => !v)}
+              onClick={() => { setShowCreate((v) => !v); setEditing(null); }}
               className="flex items-center gap-1.5 text-[12px] font-semibold text-ink bg-cyan hover:bg-cyan/90 rounded px-3 py-1.5"
             >
               {showCreate ? <X size={14} /> : <Plus size={14} />} {showCreate ? 'Close' : 'New user'}
@@ -127,22 +142,22 @@ export default function AdminUsers() {
           <Panel title="Create user">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
               <Field label="Username">
-                <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} className={inputCls} placeholder="j.okafor" />
+                <input value={createForm.username} onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })} className={inputCls} placeholder="j.okafor" />
               </Field>
               <Field label="Password">
-                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={inputCls} placeholder="min 4 chars" />
+                <input type="password" value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} className={inputCls} placeholder="min 4 chars" />
               </Field>
               <Field label="Role">
-                <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })} className={inputCls}>
+                <select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value as Role })} className={inputCls}>
                   {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
               </Field>
               <Field label="Account (CUSTOMER)">
-                <input value={form.account_id} onChange={(e) => setForm({ ...form, account_id: e.target.value })} disabled={form.role !== 'CUSTOMER'} className={`${inputCls} disabled:opacity-40`} placeholder="acc-A" />
+                <input value={createForm.account_id} onChange={(e) => setCreateForm({ ...createForm, account_id: e.target.value })} disabled={createForm.role !== 'CUSTOMER'} className={`${inputCls} disabled:opacity-40`} placeholder="acc-A" />
               </Field>
               <button
                 onClick={() => createMut.mutate()}
-                disabled={busy || form.username.trim().length < 3 || form.password.length < 4}
+                disabled={busy || createForm.username.trim().length < 3 || createForm.password.length < 4}
                 className="flex items-center justify-center gap-1.5 h-[38px] text-[12px] font-semibold text-ink bg-allow hover:bg-allow/90 rounded px-3 disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 <UserPlus size={14} /> Create
@@ -151,7 +166,41 @@ export default function AdminUsers() {
           </Panel>
         )}
 
+        {editing && (
+          <Panel title={`Edit ${editing.username}`} right={<button onClick={() => setEditing(null)} className="text-muted hover:text-fg"><X size={14} /></button>}>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+              <Field label="Role">
+                <select value={editForm.role} disabled={editingSelf} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className={`${inputCls} disabled:opacity-40`}>
+                  {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </Field>
+              <Field label="Account">
+                <input value={editForm.account_id} onChange={(e) => setEditForm({ ...editForm, account_id: e.target.value })} className={inputCls} placeholder="acc-A (CUSTOMER)" />
+              </Field>
+              <Field label="Status">
+                <select value={editForm.enabled ? 'enabled' : 'disabled'} disabled={editingSelf} onChange={(e) => setEditForm({ ...editForm, enabled: e.target.value === 'enabled' })} className={`${inputCls} disabled:opacity-40`}>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </Field>
+              <button
+                onClick={() => updateMut.mutate()}
+                disabled={busy}
+                className="flex items-center justify-center gap-1.5 h-[38px] text-[12px] font-semibold text-ink bg-allow hover:bg-allow/90 rounded px-3 disabled:opacity-45 disabled:cursor-not-allowed"
+              >
+                <Save size={14} /> Save changes
+              </button>
+            </div>
+            {editingSelf && <p className="mt-2.5 font-mono text-[10.5px] text-muted">Role and status are locked when editing your own account (lockout guard).</p>}
+          </Panel>
+        )}
+
         <Panel title="Users" right={<span className="font-mono text-[10.5px] text-muted">{filtered.length} users</span>}>
+          {filtered.length > PAGE_SIZE && (
+            <div className="border-b border-line/70 mb-2 -mt-1">
+              <Pagination page={safePage} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
@@ -169,41 +218,29 @@ export default function AdminUsers() {
                   const role = u.roles?.[0] ?? 'CUSTOMER';
                   const hex = ROLE_HEX[role] ?? '#5c6773';
                   return (
-                    <tr key={u.user_id} className="border-b border-line/60">
+                    <tr key={u.user_id} className={`border-b border-line/60 ${editing?.username === u.username ? 'bg-cyan/[0.04]' : ''}`}>
                       <td className="py-2.5 pr-3">
                         <Mono className="text-fg">{u.username}</Mono>
                         {self && <span className="ml-1.5 font-mono text-[9px] text-cyan">you</span>}
                       </td>
                       <td className="py-2.5 pr-3">
-                        <select
-                          value={role}
-                          disabled={self || busy}
-                          onChange={(e) => roleMut.mutate({ username: u.username, role: e.target.value })}
-                          className="font-mono text-[11px] rounded border px-1.5 py-0.5 bg-transparent disabled:opacity-60"
-                          style={{ color: hex, borderColor: `${hex}55` }}
-                          title={self ? "can't change your own role" : 'change role'}
-                        >
-                          {ROLES.map((r) => <option key={r} value={r} className="bg-panel text-fg">{r}</option>)}
-                        </select>
+                        <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded border" style={{ color: hex, background: `${hex}1a`, borderColor: `${hex}55` }}>
+                          {role}
+                        </span>
                       </td>
                       <td className="py-2.5 pr-3"><Mono className="text-fg-2">{u.account_id ?? '—'}</Mono></td>
                       <td className="py-2.5 pr-3">
-                        {u.enabled ? (
-                          <span className="font-mono text-[10.5px] text-allow">● enabled</span>
-                        ) : (
-                          <span className="font-mono text-[10.5px] text-muted">○ disabled</span>
-                        )}
+                        {u.enabled
+                          ? <span className="font-mono text-[10.5px] text-allow">● enabled</span>
+                          : <span className="font-mono text-[10.5px] text-muted">○ disabled</span>}
                       </td>
                       <td className="py-2.5 pr-3">
                         <div className="flex items-center gap-1.5 justify-end">
                           <button
-                            onClick={() => enableMut.mutate({ username: u.username, enabled: !u.enabled })}
-                            disabled={self || busy}
-                            title={self ? "can't disable yourself" : u.enabled ? 'disable' : 'enable'}
-                            className="flex items-center gap-1 font-mono text-[10.5px] px-2 py-1 rounded border border-line text-fg-2 hover:text-fg hover:border-line-2 disabled:opacity-35 disabled:cursor-not-allowed"
+                            onClick={() => { setEditing(u); setShowCreate(false); }}
+                            className="flex items-center gap-1 font-mono text-[10.5px] px-2 py-1 rounded border border-line text-fg-2 hover:text-fg hover:border-cyan"
                           >
-                            {u.enabled ? <Ban size={12} /> : <CheckCircle2 size={12} />}
-                            {u.enabled ? 'Disable' : 'Enable'}
+                            <Pencil size={12} /> Edit
                           </button>
                           <button
                             onClick={() => { if (confirm(`Delete user ${u.username}?`)) deleteMut.mutate(u.username); }}
@@ -230,8 +267,6 @@ export default function AdminUsers() {
     </div>
   );
 }
-
-const inputCls = 'w-full h-[38px] rounded-lg bg-ink border border-line-2 px-3 font-mono text-[12px] text-fg outline-none focus:border-cyan';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

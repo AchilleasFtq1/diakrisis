@@ -175,6 +175,11 @@ export const api = {
     users: () => request<UserView[]>('/admin/users'),
     createUser: (body: { username: string; password: string; role?: string; account_id?: string }) =>
       request<UserView>('/admin/users', { method: 'POST', body: JSON.stringify(body) }),
+    updateUser: (username: string, body: { role?: string; enabled?: boolean; account_id?: string }) =>
+      request<UserView>(`/admin/users/${encodeURIComponent(username)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
     assignRole: (username: string, role: string) =>
       request<UserView>(`/admin/users/${encodeURIComponent(username)}/roles`, {
         method: 'POST',
