@@ -138,6 +138,39 @@ java -jar bank-app/target/bank-app-*.jar                    # :8080
 The engine loads its pre-trained model artifacts from `diakrisis.models-dir`
 (default `../diakrisis-models`).
 
+### Building services independently
+
+Every module is a **self-contained Maven project** — each service compiles, tests, and
+packages on its own without the reactor. `common` and `engine` are versioned libraries
+(`com.cy.diakritis:common` / `:engine` `0.1.0-SNAPSHOT`) installed to the local `.m2`; the
+three deployables (`decision-service`, `bank-app`, `etl`) inherit from
+`spring-boot-starter-parent` (or no parent, for `etl`), declare their own properties
+(`java.version=26`) and their own `dependencyManagement`, and resolve `common`/`engine` from
+`.m2` as ordinary dependencies. The root `pom.xml` is an **optional convenience aggregator**
+only — it is never required to build a single service.
+
+**Build order** — install the two libraries to `.m2` first, then build any service alone:
+
+```bash
+# 1. Publish the libraries to ~/.m2 (run from the reactor root).
+#    Either via the reactor:
+mvn -q -pl common,engine -am install
+#    …or each library on its own (equivalent):
+cd common && mvn -q clean install && cd ..
+cd engine && mvn -q clean install && cd ..
+
+# 2. Build each service ON ITS OWN (each cd is a standalone build, no sibling modules needed):
+cd decision-service && mvn -q clean package   # -> BUILD SUCCESS, runnable fat jar
+cd bank-app         && mvn -q clean package   # -> BUILD SUCCESS, runnable fat jar
+cd etl              && mvn -q clean package    # -> BUILD SUCCESS, shaded runnable jar (target/etl.jar)
+
+# Re-run the decision-service golden path standalone (DynamoDB Local must be up):
+cd decision-service && mvn -q test             # T1–T15 + CI invariants green
+```
+
+A convenience script `./build.sh` runs the full order (libs to `.m2`, then each service
+standalone). Run `./build.sh --help` for options.
+
 ### Try it
 
 ```bash

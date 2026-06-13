@@ -4,12 +4,27 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!--
+      OPTIONAL convenience aggregator only.
+
+      As of Wave 6 every module is a SELF-CONTAINED Maven project: the two libraries
+      (common, engine) declare their own properties + dependencyManagement and publish
+      versioned jars to .m2 via 'mvn install'; the three deployables (decision-service,
+      bank-app, etl) declare their own parent/properties/dependencyManagement and resolve
+      common/engine FROM .m2 as ordinary dependencies. None of them inherit from this pom.
+
+      This aggregator is NOT required to build any individual service. It exists purely so
+      'mvn install' at the root builds everything in dependency order in one shot (the Maven
+      reactor topologically sorts: common -> engine -> etl/decision-service/bank-app).
+
+      To build a service on its own, see README.md "Building services independently".
+    -->
     <groupId>com.cy.diakritis</groupId>
-    <artifactId>diakritis-parent</artifactId>
+    <artifactId>diakritis-aggregator</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
-    <name>Diakrisis Parent</name>
-    <description>Diakrisis fraud/scam decisioning reactor</description>
+    <name>Diakrisis Aggregator (optional)</name>
+    <description>Optional convenience aggregator that builds all Diakrisis modules in dependency order.</description>
 
     <modules>
         <module>common</module>
@@ -18,99 +33,4 @@
         <module>decision-service</module>
         <module>bank-app</module>
     </modules>
-
-    <properties>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <java.version>26</java.version>
-        <maven.compiler.release>26</maven.compiler.release>
-
-        <spring-boot.version>4.1.0</spring-boot.version>
-        <aws-sdk.version>2.31.78</aws-sdk.version>
-        <smile.version>3.1.1</smile.version>
-        <jjwt.version>0.12.6</jjwt.version>
-        <commons-csv.version>1.12.0</commons-csv.version>
-    </properties>
-
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-dependencies</artifactId>
-                <version>${spring-boot.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>bom</artifactId>
-                <version>${aws-sdk.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <dependency>
-                <groupId>com.haifengl</groupId>
-                <artifactId>smile-core</artifactId>
-                <version>${smile.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.jsonwebtoken</groupId>
-                <artifactId>jjwt-api</artifactId>
-                <version>${jjwt.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.jsonwebtoken</groupId>
-                <artifactId>jjwt-impl</artifactId>
-                <version>${jjwt.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.jsonwebtoken</groupId>
-                <artifactId>jjwt-jackson</artifactId>
-                <version>${jjwt.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-csv</artifactId>
-                <version>${commons-csv.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.cy.diakritis</groupId>
-                <artifactId>common</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.cy.diakritis</groupId>
-                <artifactId>engine</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
-    <build>
-        <pluginManagement>
-            <plugins>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-compiler-plugin</artifactId>
-                    <configuration>
-                        <release>${maven.compiler.release}</release>
-                    </configuration>
-                </plugin>
-                <plugin>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-maven-plugin</artifactId>
-                    <version>${spring-boot.version}</version>
-                    <executions>
-                        <execution>
-                            <goals>
-                                <goal>repackage</goal>
-                            </goals>
-                        </execution>
-                    </executions>
-                </plugin>
-            </plugins>
-        </pluginManagement>
-    </build>
 </project>

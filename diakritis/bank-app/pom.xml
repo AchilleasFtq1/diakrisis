@@ -4,21 +4,72 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!--
+      Self-contained Spring Boot application. Parent is the canonical spring-boot-starter-parent
+      (NOT the local reactor pom). com.cy.diakritis:common is an ordinary dependency resolved
+      FROM .m2 (install common first). This pom owns its properties + dependencyManagement so it
+      builds with 'cd bank-app && mvn clean package' alone.
+    -->
     <parent>
-        <groupId>com.cy.diakritis</groupId>
-        <artifactId>diakritis-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/>
     </parent>
 
+    <groupId>com.cy.diakritis</groupId>
     <artifactId>bank-app</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>Diakrisis Bank App</name>
     <description>Customer-facing bank app (:8080) that builds ActionEvents and calls decision-service</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <java.version>26</java.version>
+        <maven.compiler.release>26</maven.compiler.release>
+
+        <diakritis.version>0.1.0-SNAPSHOT</diakritis.version>
+        <aws-sdk.version>2.31.78</aws-sdk.version>
+        <jjwt.version>0.12.6</jjwt.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- AWS SDK v2 (DynamoDB enhanced client used directly + transitively via common). -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Pin jjwt (transitive via common; JwtException referenced directly here). -->
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
             <groupId>com.cy.diakritis</groupId>
             <artifactId>common</artifactId>
+            <version>${diakritis.version}</version>
         </dependency>
 
         <dependency>
@@ -45,8 +96,22 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

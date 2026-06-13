@@ -4,20 +4,55 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <parent>
-        <groupId>com.cy.diakritis</groupId>
-        <artifactId>diakritis-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
-    </parent>
-
+    <!--
+      Self-contained library. NO local-reactor parent: declares its own properties +
+      dependencyManagement. Depends on com.cy.diakritis:common as an ordinary dependency
+      resolved FROM .m2 (run 'mvn install' in common first). 'mvn install' here publishes
+      com.cy.diakritis:engine:0.1.0-SNAPSHOT into .m2.
+    -->
+    <groupId>com.cy.diakritis</groupId>
     <artifactId>engine</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>Diakrisis Engine</name>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <java.version>26</java.version>
+        <maven.compiler.release>26</maven.compiler.release>
+
+        <spring-boot.version>4.1.0</spring-boot.version>
+        <aws-sdk.version>2.31.78</aws-sdk.version>
+        <smile.version>3.1.1</smile.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Manages junit-jupiter (test) and the transitive Spring artifacts pulled in via common. -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Manages the AWS SDK artifacts that common exposes transitively. -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
             <groupId>com.cy.diakritis</groupId>
             <artifactId>common</artifactId>
+            <version>0.1.0-SNAPSHOT</version>
         </dependency>
 
         <!--
@@ -31,7 +66,7 @@
         <dependency>
             <groupId>com.github.haifengl</groupId>
             <artifactId>smile-core</artifactId>
-            <version>3.1.1</version>
+            <version>${smile.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.arrow</groupId>
@@ -56,6 +91,17 @@
     </dependencies>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                        <release>${maven.compiler.release}</release>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
