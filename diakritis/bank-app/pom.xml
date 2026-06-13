@@ -33,6 +33,13 @@
         <diakritis.version>0.1.0-SNAPSHOT</diakritis.version>
         <aws-sdk.version>2.31.78</aws-sdk.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <!--
+          springdoc 3.0.x is the first GA line built against Spring Boot 4 / Spring Framework 7
+          (Jackson 3, the split spring-boot-* modules, jakarta servlet). The 2.x line targets Boot 3
+          and will not autoconfigure here. 3.0.3 is built on Boot 4.0.5 and resolves+boots cleanly
+          under our Boot 4.1.0.
+        -->
+        <springdoc.version>3.0.3</springdoc.version>
     </properties>
 
     <dependencyManagement>
@@ -94,6 +101,17 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>dynamodb-enhanced</artifactId>
+        </dependency>
+
+        <!--
+          Live OpenAPI 3 spec (/v3/api-docs) + Swagger UI (/swagger-ui.html) for the bank API.
+          springdoc 3.0.x autoconfigures both against Spring Boot 4 / Jackson 3; no extra wiring beyond
+          the OpenApiConfig bean (JWT bearer scheme) and the JwtAuthFilter public-path exemption.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
         </dependency>
 
         <dependency>

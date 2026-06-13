@@ -8,6 +8,7 @@ import com.cy.diakritis.decision.repo.DecisionRepository;
 import com.cy.diakritis.decision.service.DecisionService;
 import com.cy.diakritis.decision.web.error.NotFoundException;
 import com.cy.diakritis.decision.web.error.UnprocessableException;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
@@ -43,6 +44,10 @@ public class DecisionController {
         this.jsonMapper = jsonMapper;
     }
 
+    @Operation(summary = "Score an ActionEvent into a Decision (idempotent on event_id)",
+            description = "Runs the rule engine + AI co-judge and returns the combined verdict, lifecycle, and "
+                    + "dual-audience explanation. Idempotent: replaying the same event_id returns the stored "
+                    + "response without re-scoring or mutating posture.")
     @PostMapping(path = "/decision",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
@@ -56,6 +61,9 @@ public class DecisionController {
         return decisionService.decide(event, principal);
     }
 
+    @Operation(summary = "Explain a stored decision",
+            description = "Returns the audit + customer explanation, reason code, and typologies for a previously "
+                    + "scored event_id.")
     @GetMapping(path = "/decisions/{id}/why", produces = MediaType.APPLICATION_JSON_VALUE)
     public WhyResponse why(@PathVariable("id") String eventId) {
         DecisionItem item = decisionRepository.findByEventId(eventId)

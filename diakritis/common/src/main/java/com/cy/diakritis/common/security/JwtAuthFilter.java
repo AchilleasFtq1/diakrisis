@@ -14,9 +14,12 @@ import java.io.IOException;
  * {@link AuthPrincipal} as the request attribute {@code "principal"}, and exposes the raw
  * bearer token via {@link BearerTokenHolder} for downstream forwarding.
  *
- * <p>Public paths ({@code /auth/login}, {@code /actuator/**}) bypass authentication. Invalid
- * tokens are rejected with {@code 401}; the absence of a token on a protected path leaves the
- * principal attribute unset so the controller layer can enforce authorization explicitly.
+ * <p>Public paths bypass authentication: {@code /auth/login}, {@code /actuator/**}, and the API
+ * documentation surface ({@code /swagger-ui.html}, {@code /swagger-ui/**}, {@code /v3/api-docs}
+ * and {@code /v3/api-docs/**}) so the OpenAPI spec and Swagger UI are browsable without a token
+ * (the UI itself carries the bearer per-request via its Authorize dialog). Invalid tokens are
+ * rejected with {@code 401}; the absence of a token on a protected path leaves the principal
+ * attribute unset so the controller layer can enforce authorization explicitly.
  */
 public class JwtAuthFilter extends OncePerRequestFilter {
 
@@ -26,6 +29,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String PUBLIC_LOGIN = "/auth/login";
     private static final String PUBLIC_ACTUATOR_PREFIX = "/actuator/";
+    private static final String PUBLIC_SWAGGER_UI_HTML = "/swagger-ui.html";
+    private static final String PUBLIC_SWAGGER_UI_PREFIX = "/swagger-ui/";
+    private static final String PUBLIC_API_DOCS = "/v3/api-docs";
+    private static final String PUBLIC_API_DOCS_PREFIX = "/v3/api-docs/";
 
     private final JwtService jwtService;
 
@@ -42,7 +49,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (path == null) {
             path = request.getRequestURI();
         }
-        return PUBLIC_LOGIN.equals(path) || (path != null && path.startsWith(PUBLIC_ACTUATOR_PREFIX));
+        if (path == null) {
+            return false;
+        }
+        return PUBLIC_LOGIN.equals(path)
+                || path.startsWith(PUBLIC_ACTUATOR_PREFIX)
+                || PUBLIC_SWAGGER_UI_HTML.equals(path)
+                || path.startsWith(PUBLIC_SWAGGER_UI_PREFIX)
+                || PUBLIC_API_DOCS.equals(path)
+                || path.startsWith(PUBLIC_API_DOCS_PREFIX);
     }
 
     @Override

@@ -7,6 +7,7 @@ import com.cy.diakritis.bank.web.dto.AccountView;
 import com.cy.diakritis.bank.web.dto.PayeeView;
 import com.cy.diakritis.common.security.AuthPrincipal;
 import com.cy.diakritis.common.security.Role;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,6 +30,9 @@ public class AccountController {
         this.currentUser = currentUser;
     }
 
+    @Operation(summary = "Get account facts",
+            description = "Returns balance and account metadata. A CUSTOMER may read only their bound account; "
+                    + "OPS/APPROVER may read any account.")
     @GetMapping("/accounts/{id}")
     public AccountView getAccount(@PathVariable("id") String accountId, HttpServletRequest request) {
         AuthPrincipal principal = currentUser.require(request);
@@ -36,6 +40,8 @@ public class AccountController {
         return bankingService.getAccount(accountId);
     }
 
+    @Operation(summary = "List saved payees",
+            description = "Returns the saved payees for the caller's bound account.")
     @GetMapping("/payees")
     public List<PayeeView> getPayees(HttpServletRequest request) {
         AuthPrincipal principal = currentUser.require(request);

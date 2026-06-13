@@ -6,6 +6,7 @@ import com.cy.diakritis.bank.security.UnauthorizedException;
 import com.cy.diakritis.bank.web.dto.LoginRequest;
 import com.cy.diakritis.bank.web.dto.LoginResponse;
 import com.cy.diakritis.common.security.JwtService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,6 +35,10 @@ public class AuthController {
         this.jwtService = jwtService;
     }
 
+    @Operation(summary = "Authenticate a demo user and mint a JWT",
+            description = "Validates demo credentials (password 'demo') and returns a Bearer token plus its "
+                    + "roles and expiry. Public endpoint. Paste the returned token into the Swagger Authorize "
+                    + "dialog to call the protected endpoints.")
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         DemoUser user = demoUserStore.authenticate(request.username(), request.password())

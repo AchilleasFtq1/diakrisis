@@ -11,6 +11,7 @@ import com.cy.diakritis.common.dto.Decision;
 import com.cy.diakritis.common.dto.EventType;
 import com.cy.diakritis.common.security.AuthPrincipal;
 import com.cy.diakritis.common.security.Role;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,30 +37,44 @@ public class TransferController {
         this.currentUser = currentUser;
     }
 
+    @Operation(summary = "Initiate a SEPA/internal transfer",
+            description = "Builds a TRANSFER ActionEvent for the caller's bound account and returns the "
+                    + "decision-service verdict.")
     @PostMapping("/transfers")
     public Decision transfer(@Valid @RequestBody TransferRequest request, HttpServletRequest httpRequest) {
         String accountId = customerAccount(httpRequest);
         return bankingService.transfer(accountId, request, EventType.TRANSFER);
     }
 
+    @Operation(summary = "Initiate a P2P (instant) transfer",
+            description = "Builds a P2P_TRANSFER ActionEvent for the caller's bound account and returns the "
+                    + "decision-service verdict.")
     @PostMapping("/p2p")
     public Decision p2p(@Valid @RequestBody TransferRequest request, HttpServletRequest httpRequest) {
         String accountId = customerAccount(httpRequest);
         return bankingService.transfer(accountId, request, EventType.P2P_TRANSFER);
     }
 
+    @Operation(summary = "Add a beneficiary (payee)",
+            description = "Registers a new payee and returns the BENEFICIARY_ADD decision.")
     @PostMapping("/payees")
     public Decision addPayee(@Valid @RequestBody PayeeRequest request, HttpServletRequest httpRequest) {
         String accountId = customerAccount(httpRequest);
         return bankingService.addPayee(accountId, request);
     }
 
+    @Operation(summary = "Submit a mass-payment batch",
+            description = "Builds a MASS_PAYMENT ActionEvent with per-item decisions; on a business account the "
+                    + "batch requires approval.")
     @PostMapping("/batches")
     public Decision batch(@Valid @RequestBody BatchRequest request, HttpServletRequest httpRequest) {
         String accountId = customerAccount(httpRequest);
         return bankingService.massPayment(accountId, request);
     }
 
+    @Operation(summary = "Break a term deposit",
+            description = "Builds a TERM_DEPOSIT_BREAK ActionEvent for the named deposit; capped at CONFIRM with "
+                    + "a purpose prompt, and frees funds onto the account posture.")
     @PostMapping("/deposits/{id}/break")
     public Decision breakDeposit(@PathVariable("id") String depositId,
                                  @Valid @RequestBody DepositBreakRequest request,
@@ -68,6 +83,9 @@ public class TransferController {
         return bankingService.breakDeposit(accountId, depositId, request);
     }
 
+    @Operation(summary = "Change a transfer limit",
+            description = "Builds a LIMIT_CHANGE ActionEvent; more than doubling the current limit requires "
+                    + "approval.")
     @PostMapping("/limits/change")
     public Decision changeLimit(@Valid @RequestBody LimitChangeRequest request, HttpServletRequest httpRequest) {
         String accountId = customerAccount(httpRequest);
