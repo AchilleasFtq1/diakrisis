@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Lock, X } from 'lucide-react';
 import { api } from '../lib/api';
 import { loadSession } from '../lib/auth';
@@ -13,11 +13,18 @@ const PAGE_SIZE = 8;
 export default function Approvals() {
   const qc = useQueryClient();
   const me = loadSession()?.sub;
-  const approvals = useQuery({ queryKey: ['approvals'], queryFn: api.approvals, refetchInterval: 5000 });
 
   const [query, setQuery] = useState('');
   const [mineOnly, setMineOnly] = useState(false);
   const [page, setPage] = useState(1);
+
+  // Server-paged + server-filtered: search, "initiated by me" and page are query params.
+  const approvals = useQuery({
+    queryKey: ['approvals', page, query, mineOnly, me],
+    queryFn: () => api.approvals({ page, size: PAGE_SIZE, q: query, initiator: mineOnly ? me : undefined }),
+    refetchInterval: 5000,
+    placeholderData: keepPreviousData,
+  });
 
   const act = useMutation({
     mutationFn: ({ id, kind }: { id: string; kind: 'approve' | 'reject' }) =>
@@ -25,19 +32,9 @@ export default function Approvals() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['approvals'] }),
   });
 
-  const rows = approvals.data ?? [];
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase();
-    return rows.filter((a) => {
-      if (mineOnly && a.initiator_user_id !== me) return false;
-      if (!q) return true;
-      return [a.event_id, a.initiator_user_id, a.state].filter(Boolean).join(' ').toLowerCase().includes(q);
-    });
-  }, [rows, query, mineOnly, me]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
-  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageRows = approvals.data?.items ?? [];
+  const total = approvals.data?.total ?? 0;
+  const filtersActive = mineOnly || query.length > 0;
 
   return (
     <div>
@@ -75,7 +72,7 @@ export default function Approvals() {
                 initiated by me
               </button>
               <span className="text-muted">
-                {filtered.length === rows.length ? `${rows.length} waiting` : `${filtered.length} of ${rows.length}`}
+                {filtersActive ? `${total} matching` : `${total} waiting`}
               </span>
             </div>
           }
@@ -134,13 +131,13 @@ export default function Approvals() {
                 </div>
               );
             })}
-            {filtered.length === 0 && (
+            {pageRows.length === 0 && (
               <div className="py-10 text-center text-muted text-[13px]">
-                {rows.length === 0 ? 'No actions awaiting approval.' : 'No actions match the current filters.'}
+                {filtersActive ? 'No actions match the current filters.' : 'No actions awaiting approval.'}
               </div>
             )}
           </div>
-          <Pagination page={safePage} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
+          <Pagination page={approvals.data?.page ?? page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />
         </Panel>
       </div>
     </div>

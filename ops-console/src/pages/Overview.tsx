@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { PageHead } from '../components/Layout';
 import { StatCard, LiveToggle, Panel, Pagination, SearchInput } from '../components/widgets';
 import { OutcomePill, ScoreMeter, NeedsReview, Mono } from '../components/primitives';
 import { euro, timeAgo } from '../lib/format';
-import type { FeedEntry, Outcome } from '../lib/types';
+import type { Outcome } from '../lib/types';
 
 const OUTCOME_HEX: Record<string, string> = {
   ALLOW: '#3FB950',
@@ -18,47 +18,35 @@ const OUTCOME_HEX: Record<string, string> = {
 const ORDER: Outcome[] = ['ALLOW', 'CONFIRM', 'REQUIRE_APPROVAL', 'HOLD', 'BLOCK'];
 const PAGE_SIZE = 15;
 
-function matchesQuery(e: FeedEntry, q: string): boolean {
-  if (!q) return true;
-  const hay = [e.account_id, e.event_type, e.reason_code, e.initiator_sub, ...(e.typologies ?? [])]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  return hay.includes(q.toLowerCase());
-}
-
 export default function Overview() {
   const navigate = useNavigate();
   const [live, setLive] = useState(true);
   const interval = live ? 4000 : false;
 
-  const [outcomes, setOutcomes] = useState<Set<Outcome>>(new Set());
+  const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
 
   const counters = useQuery({ queryKey: ['counters'], queryFn: api.counters, refetchInterval: interval });
-  const feed = useQuery({ queryKey: ['feed'], queryFn: api.feed, refetchInterval: interval });
+  // Server-paged + server-filtered: the page index, outcome filter and search are query params.
+  const feed = useQuery({
+    queryKey: ['feed', page, outcomes, query],
+    queryFn: () => api.feed({ page, size: PAGE_SIZE, outcomes, q: query }),
+    refetchInterval: interval,
+    placeholderData: keepPreviousData,
+  });
 
   const c = counters.data;
-  const total = c?.total ?? 0;
+  const totalDecisions = c?.total ?? 0;
   const money = c ? euro(c.money_saved_cents / 100) : '—';
   const slaOk = (c?.p50_latency_ms ?? 0) < 50;
 
-  const filtered = useMemo(() => {
-    const rows = feed.data ?? [];
-    return rows.filter((e) => (outcomes.size === 0 || (e.verdict && outcomes.has(e.verdict))) && matchesQuery(e, query));
-  }, [feed.data, outcomes, query]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
-  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const rows = feed.data?.items ?? [];
+  const matchTotal = feed.data?.total ?? 0;
+  const filtersActive = outcomes.length > 0 || query.length > 0;
 
   const toggleOutcome = (o: Outcome) => {
-    setOutcomes((prev) => {
-      const next = new Set(prev);
-      next.has(o) ? next.delete(o) : next.add(o);
-      return next;
-    });
+    setOutcomes((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]));
     setPage(1);
   };
   const onQuery = (v: string) => {
@@ -77,7 +65,7 @@ export default function Overview() {
       <div className="px-8 py-6 space-y-6">
         {/* KPI cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Total decisions" value={total.toLocaleString()} />
+          <StatCard label="Total decisions" value={totalDecisions.toLocaleString()} />
           <StatCard
             label="p50 latency"
             value={<span style={{ color: slaOk ? '#3FB950' : '#F85149' }}>{c?.p50_latency_ms ?? '—'}<span className="text-[14px] text-muted ml-1">ms</span></span>}
@@ -97,7 +85,7 @@ export default function Overview() {
             <div className="flex h-2.5 rounded overflow-hidden bg-panel-2 border border-line">
               {ORDER.map((o) => {
                 const n = c?.by_outcome?.[o] ?? 0;
-                const pct = total > 0 ? (n / total) * 100 : 0;
+                const pct = totalDecisions > 0 ? (n / totalDecisions) * 100 : 0;
                 return pct > 0 ? <div key={o} style={{ width: `${pct}%`, background: OUTCOME_HEX[o] }} /> : null;
               })}
             </div>
@@ -122,10 +110,10 @@ export default function Overview() {
             </div>
           }
         >
-          {/* outcome filter chips */}
+          {/* outcome filter chips (server-side filter) */}
           <div className="flex items-center gap-1.5 flex-wrap mb-3.5">
             {ORDER.map((o) => {
-              const active = outcomes.has(o);
+              const active = outcomes.includes(o);
               const hex = OUTCOME_HEX[o];
               return (
                 <button
@@ -143,14 +131,12 @@ export default function Overview() {
               );
             })}
             <span className="font-mono text-[10.5px] text-muted ml-1">
-              {filtered.length === (feed.data?.length ?? 0)
-                ? `${filtered.length} shown`
-                : `${filtered.length} of ${feed.data?.length ?? 0}`}
+              {filtersActive ? `${matchTotal} matching` : `${matchTotal} shown`}
             </span>
-            {(outcomes.size > 0 || query) && (
+            {filtersActive && (
               <button
                 onClick={() => {
-                  setOutcomes(new Set());
+                  setOutcomes([]);
                   setQuery('');
                   setPage(1);
                 }}
@@ -176,7 +162,7 @@ export default function Overview() {
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map((e) => (
+                {rows.map((e) => (
                   <tr
                     key={e.event_id}
                     onClick={() => navigate(`/decisions/${encodeURIComponent(e.event_id)}`)}
@@ -200,12 +186,10 @@ export default function Overview() {
                     <td className="py-2.5 pr-3 font-mono text-[11px] text-fg-2">{e.lifecycle_state}</td>
                   </tr>
                 ))}
-                {filtered.length === 0 && (
+                {rows.length === 0 && (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-muted">
-                      {(feed.data?.length ?? 0) === 0
-                        ? 'No decisions yet — drive a payment in the bank.'
-                        : 'No decisions match the current filters.'}
+                      {filtersActive ? 'No decisions match the current filters.' : 'No decisions yet — drive a payment in the bank.'}
                     </td>
                   </tr>
                 )}
@@ -213,7 +197,7 @@ export default function Overview() {
             </table>
           </div>
 
-          <Pagination page={safePage} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
+          <Pagination page={feed.data?.page ?? page} pageSize={PAGE_SIZE} total={matchTotal} onPage={setPage} />
         </Panel>
       </div>
     </div>

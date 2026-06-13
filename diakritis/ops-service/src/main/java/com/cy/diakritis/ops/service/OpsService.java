@@ -12,6 +12,7 @@ import com.cy.diakritis.ops.web.dto.AccountView;
 import com.cy.diakritis.ops.web.dto.ApprovalEntry;
 import com.cy.diakritis.ops.web.dto.CountersView;
 import com.cy.diakritis.ops.web.dto.FeedEntry;
+import com.cy.diakritis.ops.web.dto.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -68,13 +70,53 @@ public class OpsService {
     // Feed.
     // ------------------------------------------------------------------------------------------------
 
-    public List<FeedEntry> feed() {
+    /**
+     * Server-paged decision feed. Filtering (by outcome and free-text) happens before paging so the
+     * page total reflects the filtered set. Built over the {@value #FEED_LIMIT} most-recent decisions.
+     *
+     * @param page     1-based page index (clamped)
+     * @param size     page size (clamped to 1..{@link Page#MAX_SIZE})
+     * @param outcomes if non-empty, keep only these verdicts (ALLOW/CONFIRM/REQUIRE_APPROVAL/HOLD/BLOCK)
+     * @param query    if non-blank, case-insensitive substring over account/type/typology/reason/initiator
+     */
+    public Page<FeedEntry> feed(int page, int size, List<String> outcomes, String query) {
+        List<FeedEntry> filtered = recentFeed().stream()
+                .filter(e -> outcomes == null || outcomes.isEmpty()
+                        || (e.verdict() != null && outcomes.contains(e.verdict())))
+                .filter(e -> matchesQuery(e, query))
+                .toList();
+        return Page.of(filtered, page, size);
+    }
+
+    /** The {@value #FEED_LIMIT} most-recent decisions, newest first — the basis for the feed and filters. */
+    private List<FeedEntry> recentFeed() {
         List<FeedEntry> entries = new ArrayList<>();
         decisionTable.scan().items().forEach(item -> entries.add(toFeedEntry(item)));
         entries.sort(Comparator.comparing(
                 (FeedEntry entry) -> entry.createdAt() == null ? Instant.EPOCH : entry.createdAt())
                 .reversed());
         return entries.size() > FEED_LIMIT ? new ArrayList<>(entries.subList(0, FEED_LIMIT)) : entries;
+    }
+
+    private static boolean matchesQuery(FeedEntry e, String query) {
+        if (query == null || query.isBlank()) {
+            return true;
+        }
+        StringBuilder hay = new StringBuilder();
+        appendIfPresent(hay, e.accountId());
+        appendIfPresent(hay, e.eventType());
+        appendIfPresent(hay, e.reasonCode());
+        appendIfPresent(hay, e.initiatorSub());
+        if (e.typologies() != null) {
+            e.typologies().forEach(t -> appendIfPresent(hay, t));
+        }
+        return hay.toString().toLowerCase().contains(query.toLowerCase());
+    }
+
+    private static void appendIfPresent(StringBuilder sb, String value) {
+        if (value != null) {
+            sb.append(value).append(' ');
+        }
     }
 
     private FeedEntry toFeedEntry(DecisionItem item) {
@@ -170,7 +212,15 @@ public class OpsService {
     // Approvals.
     // ------------------------------------------------------------------------------------------------
 
-    public List<ApprovalEntry> approvals() {
+    /**
+     * Server-paged four-eyes queue. Filtering (by initiator and free-text) happens before paging.
+     *
+     * @param page      1-based page index (clamped)
+     * @param size      page size (clamped to 1..{@link Page#MAX_SIZE})
+     * @param query     if non-blank, case-insensitive substring over event/initiator/state
+     * @param initiator if non-blank, keep only actions raised by this user (the "initiated by me" filter)
+     */
+    public Page<ApprovalEntry> approvals(int page, int size, String query, String initiator) {
         Map<String, Long> amountByEvent = new HashMap<>();
         decisionTable.scan().items().forEach(d -> amountByEvent.put(d.getEventId(), d.getAmountCents()));
 
@@ -182,7 +232,23 @@ public class OpsService {
         }
         entries.sort(Comparator.comparingLong(
                 (ApprovalEntry entry) -> entry.createdAt() == null ? 0L : entry.createdAt().toEpochMilli()));
-        return entries;
+
+        List<ApprovalEntry> filtered = entries.stream()
+                .filter(a -> initiator == null || initiator.isBlank() || initiator.equals(a.initiatorUserId()))
+                .filter(a -> approvalMatchesQuery(a, query))
+                .toList();
+        return Page.of(filtered, page, size);
+    }
+
+    private static boolean approvalMatchesQuery(ApprovalEntry a, String query) {
+        if (query == null || query.isBlank()) {
+            return true;
+        }
+        StringBuilder hay = new StringBuilder();
+        appendIfPresent(hay, a.eventId());
+        appendIfPresent(hay, a.initiatorUserId());
+        appendIfPresent(hay, a.state());
+        return hay.toString().toLowerCase().contains(query.toLowerCase());
     }
 
     private boolean isApprovalPending(String state) {
@@ -206,12 +272,31 @@ public class OpsService {
     // Decision detail + account view.
     // ------------------------------------------------------------------------------------------------
 
-    /** The full stored decision for one event (the verbatim response, incl. the signal breakdown). */
+    /**
+     * The full stored decision for one event (the verbatim response, incl. the signal breakdown),
+     * enriched with the {@code Decisions}-table metadata (account, amount, type, timestamps, lifecycle)
+     * so the detail page is self-contained and does not have to find the event in the paged feed.
+     */
     public JsonNode decision(String eventId) {
         for (DecisionItem item : decisionTable.scan().items()) {
             if (eventId.equals(item.getEventId()) && item.getResponseJson() != null) {
                 try {
-                    return jsonMapper.readTree(item.getResponseJson());
+                    JsonNode tree = jsonMapper.readTree(item.getResponseJson());
+                    if (tree instanceof ObjectNode node) {
+                        node.put("account_id", item.getAccountId());
+                        node.put("amount_eur", eurOf(item.getAmountCents()));
+                        node.put("initiator_sub", item.getInitiatorSub());
+                        node.put("lifecycle_state", item.getLifecycleState());
+                        if (item.getCreatedEpochMs() > 0) {
+                            node.put("created_at", Instant.ofEpochMilli(item.getCreatedEpochMs()).toString());
+                        }
+                        Decision parsed = parseDecision(item);
+                        String eventType = parsed == null ? null : eventTypeFrom(parsed);
+                        if (eventType != null) {
+                            node.put("event_type", eventType);
+                        }
+                    }
+                    return tree;
                 } catch (JacksonException ex) {
                     LOG.warn("Could not parse stored decision for event {}: {}", eventId, ex.toString());
                     return null;

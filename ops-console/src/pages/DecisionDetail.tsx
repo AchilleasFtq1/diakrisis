@@ -57,28 +57,26 @@ function SignalRow({ s, max }: { s: Signal; max: number }) {
 export default function DecisionDetail() {
   const { id = '' } = useParams();
   const decision = useQuery({ queryKey: ['decision', id], queryFn: () => api.decision(id) });
-  const feed = useQuery({ queryKey: ['feed'], queryFn: api.feed });
 
-  const entry = feed.data?.find((e) => e.event_id === id);
-  const accountId = entry?.account_id;
+  const d = decision.data;
+  const accountId = d?.account_id ?? undefined;
   const account = useQuery({
     queryKey: ['account', accountId],
     queryFn: () => api.account(accountId!),
     enabled: !!accountId,
   });
 
-  const d = decision.data;
   const ev = d?.engine_verdict;
-  const score = ev?.score ?? entry?.score ?? null;
-  const verdict = (d?.combined?.decision ?? ev?.decision ?? entry?.verdict ?? null) as Outcome | null;
+  const score = ev?.score ?? null;
+  const verdict = (d?.combined?.decision ?? ev?.decision ?? null) as Outcome | null;
   const engineVerdict = (ev?.decision ?? null) as Outcome | null;
-  const lifecycleState = d?.lifecycle?.state ?? entry?.lifecycle_state ?? null;
+  const lifecycleState = d?.lifecycle_state ?? d?.lifecycle?.state ?? null;
 
   const signals = ev?.signals ? [...ev.signals].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution)) : [];
   const material = signals.filter((s) => s.contribution !== 0);
   const maxContribution = signals.reduce((m, s) => Math.max(m, Math.abs(s.contribution)), 1);
 
-  const typologies = ev?.typologies?.length ? ev.typologies : entry?.typologies ?? [];
+  const typologies = ev?.typologies ?? [];
   const ai = d?.ai_co_judge;
   const aiUnavailable = !ai || ai.status === 'UNAVAILABLE' || (!ai.decision && !ai.score);
   const concur = ai?.agreement === 'CONCUR';
@@ -88,7 +86,7 @@ export default function DecisionDetail() {
   const isKillChain = typologies.some((t) => t.toLowerCase().includes('chain'));
 
   const latencyOk = d != null && d.latency_ms < 50;
-  const stamp = entry?.created_at ? new Date(entry.created_at).toLocaleString('en-GB', { hour12: false }) : '—';
+  const stamp = d?.created_at ? new Date(d.created_at).toLocaleString('en-GB', { hour12: false }) : '—';
 
   return (
     <div>
@@ -113,7 +111,7 @@ export default function DecisionDetail() {
           )}
         </div>
         <div className="font-mono text-[11px] text-muted">
-          {accountId ? `account ${accountId}` : 'account —'} · {entry?.initiator_sub ?? '—'} · {stamp}
+          {accountId ? `account ${accountId}` : 'account —'} · {d?.initiator_sub ?? '—'} · {stamp}
         </div>
       </div>
 

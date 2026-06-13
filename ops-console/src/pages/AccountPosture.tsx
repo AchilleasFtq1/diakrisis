@@ -18,8 +18,9 @@ const OBS_ICON: Record<string, typeof Smartphone> = {
 };
 
 function AccountPicker() {
-  const feed = useQuery({ queryKey: ['feed'], queryFn: api.feed });
-  const ids = Array.from(new Set((feed.data ?? []).map((e) => e.account_id).filter(Boolean)));
+  // One large page is enough to enumerate the accounts currently in the recent feed.
+  const feed = useQuery({ queryKey: ['feed', 'picker'], queryFn: () => api.feed({ size: 100 }) });
+  const ids = Array.from(new Set((feed.data?.items ?? []).map((e) => e.account_id).filter(Boolean)));
   return (
     <div>
       <PageHead eyebrow="Accounts" title="Pick an account" />

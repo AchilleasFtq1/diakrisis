@@ -7,12 +7,14 @@ import com.cy.diakritis.ops.web.dto.AccountView;
 import com.cy.diakritis.ops.web.dto.ApprovalEntry;
 import com.cy.diakritis.ops.web.dto.CountersView;
 import com.cy.diakritis.ops.web.dto.FeedEntry;
+import com.cy.diakritis.ops.web.dto.Page;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
@@ -37,11 +39,17 @@ public class OpsController {
     }
 
     @Operation(summary = "Operations decision feed",
-            description = "Read-only chronological feed of recent decisions. OPS or APPROVER role.")
+            description = "Server-paged chronological feed of recent decisions, filterable by outcome and "
+                    + "free text. OPS or APPROVER role.")
     @GetMapping("/feed")
-    public List<FeedEntry> feed(HttpServletRequest request) {
+    public Page<FeedEntry> feed(
+            @RequestParam(name = "page", defaultValue = "1") int page,
+            @RequestParam(name = "size", defaultValue = "15") int size,
+            @RequestParam(name = "outcomes", required = false) List<String> outcomes,
+            @RequestParam(name = "q", required = false) String query,
+            HttpServletRequest request) {
         currentUser.requireRole(request, Role.OPS, Role.APPROVER);
-        return opsService.feed();
+        return opsService.feed(page, size, outcomes, query);
     }
 
     @Operation(summary = "Operations counters",
@@ -53,11 +61,17 @@ public class OpsController {
     }
 
     @Operation(summary = "Pending approvals queue",
-            description = "Read-only list of actions awaiting four-eyes approval. OPS or APPROVER role.")
+            description = "Server-paged list of actions awaiting four-eyes approval, filterable by initiator "
+                    + "and free text. OPS or APPROVER role.")
     @GetMapping("/approvals")
-    public List<ApprovalEntry> approvals(HttpServletRequest request) {
+    public Page<ApprovalEntry> approvals(
+            @RequestParam(name = "page", defaultValue = "1") int page,
+            @RequestParam(name = "size", defaultValue = "8") int size,
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(name = "initiator", required = false) String initiator,
+            HttpServletRequest request) {
         currentUser.requireRole(request, Role.OPS, Role.APPROVER);
-        return opsService.approvals();
+        return opsService.approvals(page, size, query, initiator);
     }
 
     @Operation(summary = "Full decision detail",

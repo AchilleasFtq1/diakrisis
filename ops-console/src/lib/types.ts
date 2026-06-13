@@ -2,6 +2,15 @@
 
 export type Outcome = 'ALLOW' | 'CONFIRM' | 'REQUIRE_APPROVAL' | 'HOLD' | 'BLOCK';
 
+/** Server-paged list envelope from ops-service (`total` is the filtered count). */
+export interface Page<T> {
+  items: T[];
+  page: number;
+  size: number;
+  total: number;
+  total_pages: number;
+}
+
 export interface FeedEntry {
   event_id: string;
   account_id: string;
@@ -71,6 +80,13 @@ export interface DecisionDetail {
   explanation: { customer: string | null; audit: string | null } | null;
   reason_code: string | null;
   latency_ms: number;
+  // Metadata injected by ops-service from the Decisions table, so the detail page is self-contained.
+  account_id?: string | null;
+  amount_eur?: number | null;
+  event_type?: string | null;
+  created_at?: string | null;
+  initiator_sub?: string | null;
+  lifecycle_state?: string | null;
 }
 
 export interface AccountView {

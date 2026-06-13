@@ -5,8 +5,33 @@ import type {
   Counters,
   DecisionDetail,
   FeedEntry,
+  Outcome,
+  Page,
   Session,
 } from './types';
+
+export interface FeedParams {
+  page?: number;
+  size?: number;
+  outcomes?: Outcome[];
+  q?: string;
+}
+
+export interface ApprovalParams {
+  page?: number;
+  size?: number;
+  q?: string;
+  initiator?: string;
+}
+
+function queryString(params: Record<string, string | number | undefined>): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') qs.set(k, String(v));
+  }
+  const s = qs.toString();
+  return s ? `?${s}` : '';
+}
 
 const GATEWAY: string = import.meta.env.VITE_GATEWAY_URL ?? 'http://localhost:8080';
 
@@ -53,9 +78,25 @@ export async function login(username: string, password: string): Promise<Session
 }
 
 export const api = {
-  feed: () => request<FeedEntry[]>('/ops/feed'),
+  feed: (params: FeedParams = {}) =>
+    request<Page<FeedEntry>>(
+      `/ops/feed${queryString({
+        page: params.page,
+        size: params.size,
+        outcomes: params.outcomes?.length ? params.outcomes.join(',') : undefined,
+        q: params.q,
+      })}`,
+    ),
   counters: () => request<Counters>('/ops/counters'),
-  approvals: () => request<ApprovalEntry[]>('/ops/approvals'),
+  approvals: (params: ApprovalParams = {}) =>
+    request<Page<ApprovalEntry>>(
+      `/ops/approvals${queryString({
+        page: params.page,
+        size: params.size,
+        q: params.q,
+        initiator: params.initiator,
+      })}`,
+    ),
   decision: (id: string) => request<DecisionDetail>(`/ops/decisions/${encodeURIComponent(id)}`),
   account: (id: string) => request<AccountView>(`/ops/accounts/${encodeURIComponent(id)}`),
   approve: (id: string) => request<void>(`/actions/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
