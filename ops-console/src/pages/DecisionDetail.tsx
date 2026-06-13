@@ -1,11 +1,31 @@
+import type { ComponentType } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Cpu } from 'lucide-react';
+import { Cpu, Globe, MonitorSmartphone, Network, Radio, Smartphone } from 'lucide-react';
 import { api } from '../lib/api';
 import { OutcomePill, NeedsReview, Mono } from '../components/primitives';
 import { KillChainTimeline } from '../components/KillChainTimeline';
 import { euro } from '../lib/format';
-import type { Outcome, Signal } from '../lib/types';
+import type { DecisionDetail as DecisionDetailType, Outcome, Signal } from '../lib/types';
+
+/**
+ * Per-event request context, persisted on the decision at scoring time, paired with the signal each
+ * value drives. Real per-transaction values (device, network, geo, channel) — not the account's
+ * running observations. A null value (older decisions) renders the review flag, never a guess.
+ */
+const CONTEXT_FIELDS: {
+  label: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+  key: keyof DecisionDetailType;
+  signal?: string;
+}[] = [
+  { label: 'Device', icon: Smartphone, key: 'device_id', signal: 'D1' },
+  { label: 'Platform', icon: MonitorSmartphone, key: 'device_platform', signal: 'D2' },
+  { label: 'IP address', icon: Network, key: 'ip' },
+  { label: 'Network', icon: Network, key: 'network', signal: 'G2' },
+  { label: 'Location', icon: Globe, key: 'geo_country', signal: 'G1' },
+  { label: 'Channel', icon: Radio, key: 'channel', signal: 'C1' },
+];
 
 /** Lifecycle state → severity token for the topbar chip. */
 const STATE_COLOR: Record<string, string> = {
@@ -75,6 +95,9 @@ export default function DecisionDetail() {
   const signals = ev?.signals ? [...ev.signals].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution)) : [];
   const material = signals.filter((s) => s.contribution !== 0);
   const maxContribution = signals.reduce((m, s) => Math.max(m, Math.abs(s.contribution)), 1);
+  const signalById = new Map(signals.map((s) => [s.id, s]));
+  const hasContext = d != null && CONTEXT_FIELDS.some((f) => d[f.key] != null);
+  const beneficiary = d?.counterparty_name ?? d?.counterparty_ref ?? null;
 
   const typologies = ev?.typologies ?? [];
   const ai = d?.ai_co_judge;
@@ -236,6 +259,66 @@ export default function DecisionDetail() {
                   )}
                 </span>
               </div>
+            </div>
+
+            {/* session context — real per-event device · network · geo · channel */}
+            <div className="bg-panel border border-line rounded-xl p-5">
+              <div className="font-mono text-[10px] tracking-[0.1em] uppercase text-muted mb-3">
+                Session context
+              </div>
+              {!d ? (
+                <div className="text-[12px] text-muted">Loading…</div>
+              ) : hasContext ? (
+                <div className="space-y-2.5">
+                  {CONTEXT_FIELDS.map((f) => {
+                    const value = d[f.key] as string | null | undefined;
+                    const Icon = f.icon;
+                    const sig = f.signal ? signalById.get(f.signal) : undefined;
+                    const fired = sig != null && sig.contribution !== 0;
+                    return (
+                      <div key={f.key} className="flex items-center gap-2.5">
+                        <Icon size={13} className="text-cyan shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono text-[9px] uppercase tracking-wide text-muted">{f.label}</div>
+                          {value != null ? (
+                            <Mono className="text-[12px] text-fg block truncate">{value}</Mono>
+                          ) : (
+                            <NeedsReview label="not captured" />
+                          )}
+                        </div>
+                        {fired && (
+                          <span
+                            className="font-mono text-[10px] px-1.5 py-0.5 rounded border border-block/30 bg-block/10 text-block shrink-0"
+                            title={`signal ${sig!.id} contribution`}
+                          >
+                            {sig!.id} +{sig!.contribution.toFixed(0)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {beneficiary && (
+                    <div className="flex items-start gap-2.5 pt-2 border-t border-[#1c232c]">
+                      <Globe size={13} className="text-cyan mt-0.5 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-mono text-[9px] uppercase tracking-wide text-muted">
+                          Beneficiary{d.counterparty_addressing ? ` · ${d.counterparty_addressing}` : ''}
+                          {d.rail ? ` · ${d.rail}` : ''}
+                        </div>
+                        <Mono className="text-[12px] text-fg block truncate">{beneficiary}</Mono>
+                        {d.counterparty_name && d.counterparty_ref && (
+                          <Mono className="text-[10.5px] text-muted block truncate">{d.counterparty_ref}</Mono>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <NeedsReview label="context not captured" />
+                  <p className="mt-2 text-[10.5px] text-muted">Decision predates per-event context capture.</p>
+                </div>
+              )}
             </div>
           </div>
 

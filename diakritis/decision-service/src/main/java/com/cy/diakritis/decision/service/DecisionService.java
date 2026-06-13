@@ -567,7 +567,67 @@ public class DecisionService {
         item.setLifecycleState(state.name());
         item.setHoldExpiresEpochMs(holdExpiresEpochMs);
         item.setAmountCents(amountCentsOf(event));
+        populateRequestContext(item, event);
         return item;
+    }
+
+    /**
+     * Persist the per-event request context (type, session, device, network, geo, beneficiary, rail)
+     * onto the decision record, so the ops console can show what actually happened on a single
+     * transaction rather than inferring it from the account's running observations. Values come from
+     * the {@link ActionEvent}; geo/network are resolved exactly as the engine's G signals see them, so
+     * the stored context matches the scoring.
+     */
+    private void populateRequestContext(DecisionItem item, ActionEvent event) {
+        if (event.eventType() != null) {
+            item.setEventType(event.eventType().name());
+        }
+        com.cy.diakritis.common.dto.SessionContext ctx = event.context();
+        if (ctx != null) {
+            if (ctx.ts() != null) {
+                item.setEventTsEpochMs(ctx.ts().toEpochMilli());
+            }
+            if (ctx.channel() != null) {
+                item.setChannel(ctx.channel().name());
+            }
+            item.setSessionId(ctx.sessionId());
+            if (ctx.device() != null) {
+                item.setDeviceId(ctx.device().deviceId());
+                if (ctx.device().platform() != null) {
+                    item.setDevicePlatform(ctx.device().platform().name());
+                }
+            }
+            String ip = ctx.ip();
+            if (ip != null && !ip.isBlank()) {
+                item.setIp(ip);
+                item.setNetwork(slash24(ip));
+                String country = geoResolver.country(ip);
+                if (country != null && !GeoResolver.UNKNOWN.equals(country)) {
+                    item.setGeoCountry(country);
+                }
+            }
+        }
+        com.cy.diakritis.common.dto.Counterparty cp = counterpartyOf(event);
+        if (cp != null) {
+            item.setCounterpartyName(cp.resolvedName() != null ? cp.resolvedName() : cp.displayName());
+            item.setCounterpartyRef(cp.resolvedAccountRef() != null ? cp.resolvedAccountRef() : cp.value());
+            if (cp.addressing() != null) {
+                item.setCounterpartyAddressing(cp.addressing().name());
+            }
+        }
+        if (event.payload() instanceof com.cy.diakritis.common.dto.TransferPayload transfer
+                && transfer.rail() != null) {
+            item.setRail(transfer.rail().name());
+        }
+    }
+
+    /** The beneficiary on the action, if any (transfers and beneficiary-adds carry one). */
+    private static com.cy.diakritis.common.dto.Counterparty counterpartyOf(ActionEvent event) {
+        return switch (event.payload()) {
+            case com.cy.diakritis.common.dto.TransferPayload t -> t.counterparty();
+            case com.cy.diakritis.common.dto.BeneficiaryAddPayload b -> b.counterparty();
+            default -> null;
+        };
     }
 
     /** Action amount in euro-cents for the money-saved counter (0 for non-monetary actions). */

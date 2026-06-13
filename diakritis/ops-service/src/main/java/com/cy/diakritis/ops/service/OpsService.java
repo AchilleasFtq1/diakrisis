@@ -143,8 +143,11 @@ public class OpsService {
                         ? null : decision.engineVerdict().friction().name();
             }
             reasonCode = decision.reasonCode();
-            eventType = eventTypeFrom(decision);
         }
+        // Prefer the persisted event type; fall back to recovering it from the audit text for decisions
+        // written before the request context was persisted.
+        eventType = item.getEventType() != null ? item.getEventType()
+                : (decision != null ? eventTypeFrom(decision) : null);
         return new FeedEntry(
                 item.getEventId(),
                 item.getAccountId(),
@@ -293,10 +296,29 @@ public class OpsService {
                         if (item.getCreatedEpochMs() > 0) {
                             node.put("created_at", Instant.ofEpochMilli(item.getCreatedEpochMs()).toString());
                         }
-                        Decision parsed = parseDecision(item);
-                        String eventType = parsed == null ? null : eventTypeFrom(parsed);
+                        String eventType = item.getEventType();
+                        if (eventType == null) {
+                            Decision parsed = parseDecision(item);
+                            eventType = parsed == null ? null : eventTypeFrom(parsed);
+                        }
                         if (eventType != null) {
                             node.put("event_type", eventType);
+                        }
+                        // Per-event request context (persisted at decision time). Null fields are simply
+                        // omitted — the console flags them — so older decisions degrade gracefully.
+                        putIfPresent(node, "channel", item.getChannel());
+                        putIfPresent(node, "ip", item.getIp());
+                        putIfPresent(node, "network", item.getNetwork());
+                        putIfPresent(node, "geo_country", item.getGeoCountry());
+                        putIfPresent(node, "device_id", item.getDeviceId());
+                        putIfPresent(node, "device_platform", item.getDevicePlatform());
+                        putIfPresent(node, "session_id", item.getSessionId());
+                        putIfPresent(node, "rail", item.getRail());
+                        putIfPresent(node, "counterparty_name", item.getCounterpartyName());
+                        putIfPresent(node, "counterparty_ref", item.getCounterpartyRef());
+                        putIfPresent(node, "counterparty_addressing", item.getCounterpartyAddressing());
+                        if (item.getEventTsEpochMs() > 0) {
+                            node.put("event_ts", Instant.ofEpochMilli(item.getEventTsEpochMs()).toString());
                         }
                     }
                     return tree;
@@ -374,6 +396,12 @@ public class OpsService {
         } catch (JacksonException ex) {
             LOG.warn("Could not parse stored decision for event {}: {}", item.getEventId(), ex.toString());
             return null;
+        }
+    }
+
+    private static void putIfPresent(ObjectNode node, String field, String value) {
+        if (value != null && !value.isBlank()) {
+            node.put(field, value);
         }
     }
 

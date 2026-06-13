@@ -87,6 +87,19 @@ export interface DecisionDetail {
   created_at?: string | null;
   initiator_sub?: string | null;
   lifecycle_state?: string | null;
+  // Per-event request context, persisted at decision time (null on pre-existing decisions).
+  channel?: string | null;
+  ip?: string | null;
+  network?: string | null;
+  geo_country?: string | null;
+  device_id?: string | null;
+  device_platform?: string | null;
+  session_id?: string | null;
+  rail?: string | null;
+  counterparty_name?: string | null;
+  counterparty_ref?: string | null;
+  counterparty_addressing?: string | null;
+  event_ts?: string | null;
 }
 
 export interface AccountView {
@@ -102,6 +115,8 @@ export interface AccountView {
 
 export interface Session {
   token: string;
+  refresh_token?: string | null;
+  expires_at?: string | null;
   sub: string;
   roles: string[];
 }
