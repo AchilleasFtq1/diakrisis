@@ -1,7 +1,7 @@
 # Diakrisis full stack — `docker compose up --build` brings up the whole pipeline:
 #
 #   dynamodb (amazon/dynamodb-local) -> etl-seed (one-shot --demo seed) ->
-#   decision-service (:8081) -> bank-app (:8080)
+#   decision-service (:8081) + iam-service (:8083) + ops-service (:8082)
 #
 # All services share the default compose network and address each other by service name
 # (dynamodb, decision-service). The dynamo endpoint, decision-service base URL, JWT secret and
@@ -118,7 +118,7 @@ services:
       etl-seed:
         condition: service_completed_successfully
     environment:
-      # >= 32 chars for HS256 (shared with bank-app so tokens verify across services).
+      # >= 32 chars for HS256 (shared with iam-service so tokens minted there verify across services).
       DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
       DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
       DIAKRISIS_MODELS_DIR: "/models"
@@ -145,27 +145,54 @@ services:
       start_period: 20s
 
   # ------------------------------------------------------------------------------------------------
-  # Bank app (:8080) — customer-facing; calls decision-service. Waits for decision-service healthy.
+  # IAM service (:8083) — the product's identity + admin provider. Owns the Users + RefreshTokens
+  # tables and seeds the demo principals (customer-A/B/C, customer-vuln, approver-biz, ops-user,
+  # admin). Mints the JWTs the other services verify (shared HS256 secret). Waits for dynamo healthy.
   # ------------------------------------------------------------------------------------------------
-  bank-app:
+  iam-service:
     build:
       context: .
-      dockerfile: bank-app/Dockerfile
-    image: diakrisis/bank-app:0.1.0
-    container_name: diakrisis-bank-app
+      dockerfile: iam-service/Dockerfile
+    image: diakrisis/iam-service:0.1.0
+    container_name: diakrisis-iam-service
     depends_on:
       dynamodb:
-        condition: service_healthy
-      decision-service:
         condition: service_healthy
     environment:
       DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
       DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
-      DIAKRISIS_DECISION_SERVICE_BASE_URL: "http://decision-service:8081"
     ports:
-      - "8080:8080"
+      - "8083:8083"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  # ------------------------------------------------------------------------------------------------
+  # Ops service (:8082) — analyst dashboard. Read-only OPS/APPROVER projections over the Decisions /
+  # Cases / Outcomes tables that decision-service writes. Waits for dynamo healthy AND the seed to
+  # finish (so the feed/counters have data on first boot).
+  # ------------------------------------------------------------------------------------------------
+  ops-service:
+    build:
+      context: .
+      dockerfile: ops-service/Dockerfile
+    image: diakrisis/ops-service:0.1.0
+    container_name: diakrisis-ops-service
+    depends_on:
+      dynamodb:
+        condition: service_healthy
+      etl-seed:
+        condition: service_completed_successfully
+    environment:
+      DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
+      DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8082/actuator/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 15

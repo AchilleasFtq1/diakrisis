@@ -9,13 +9,13 @@
 
       As of Wave 6 every module is a SELF-CONTAINED Maven project: the two libraries
       (common, engine) declare their own properties + dependencyManagement and publish
-      versioned jars to .m2 via 'mvn install'; the three deployables (decision-service,
-      bank-app, etl) declare their own parent/properties/dependencyManagement and resolve
+      versioned jars to .m2 via 'mvn install'; the deployables (decision-service, iam-service,
+      ops-service, etl) declare their own parent/properties/dependencyManagement and resolve
       common/engine FROM .m2 as ordinary dependencies. None of them inherit from this pom.
 
       This aggregator is NOT required to build any individual service. It exists purely so
       'mvn install' at the root builds everything in dependency order in one shot (the Maven
-      reactor topologically sorts: common -> engine -> etl/decision-service/bank-app).
+      reactor topologically sorts: common -> engine -> etl/decision-service/iam-service/ops-service).
 
       To build a service on its own, see README.md "Building services independently".
     -->
@@ -31,6 +31,7 @@
         <module>engine</module>
         <module>etl</module>
         <module>decision-service</module>
-        <module>bank-app</module>
+        <module>iam-service</module>
+        <module>ops-service</module>
     </modules>
 </project>

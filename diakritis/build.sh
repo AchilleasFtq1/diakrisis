@@ -3,8 +3,9 @@
 # build.sh — build Diakrisis the shared-library way.
 #
 # Every module is a self-contained Maven project. The two libraries (common, engine) are
-# installed to the local .m2 as versioned artifacts; the three deployables
-# (decision-service, bank-app, etl) then build ON THEIR OWN, resolving common/engine from .m2.
+# installed to the local .m2 as versioned artifacts; the deployables
+# (decision-service, iam-service, ops-service, etl) then build ON THEIR OWN, resolving
+# common/engine from .m2.
 #
 # This script enforces the documented build order:
 #   1. install libs to .m2 (common, then engine)
@@ -45,7 +46,8 @@ run engine -q clean install
 
 echo "### Step 2/2 — build each service INDEPENDENTLY (standalone Maven build per service)"
 run decision-service -q clean package
-run bank-app         -q clean package
+run iam-service      -q clean package
+run ops-service      -q clean package
 run etl              -q clean package
 
 if [[ "${WITH_TESTS}" -eq 1 ]]; then
@@ -53,4 +55,4 @@ if [[ "${WITH_TESTS}" -eq 1 ]]; then
   run decision-service -q test
 fi
 
-echo "### DONE — libraries published to .m2; decision-service, bank-app, etl each packaged standalone."
+echo "### DONE — libraries published to .m2; decision-service, iam-service, ops-service, etl each packaged standalone."
