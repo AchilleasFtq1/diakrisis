@@ -1,5 +1,8 @@
 package com.cy.diakritis.engine.typology;
 
+import com.cy.diakritis.common.dto.MassPaymentPayload;
+import com.cy.diakritis.common.dto.Rail;
+import com.cy.diakritis.common.dto.TransferPayload;
 import com.cy.diakritis.engine.band.Weights;
 import com.cy.diakritis.engine.signal.Identity;
 import com.cy.diakritis.engine.signal.SignalContext;
@@ -37,8 +40,12 @@ public final class TypologyEvaluator {
         double b5 = value(values, "B5");
         double a2 = value(values, "A2");
         double a3 = value(values, "A3");
+        double d1 = value(values, "D1");
+        double g1 = value(values, "G1");
         double v2 = value(values, "V2");
         double k1 = value(values, "K1");
+        double mp1 = value(values, "MP1");
+        double mp4 = value(values, "MP4");
 
         // Ty5 — liquidation kill-chain: freed funds being swept out of a brand-new payee.
         if (k1 > 0.6 && isOne(b1) && a2 > 0.6) {
@@ -51,9 +58,17 @@ public final class TypologyEvaluator {
             matched.add(Typologies.INVOICE_REDIRECTION);
         }
 
-        // Ty1 — safe-account scam: new payee, sweeping the balance, payee added in-session.
-        if (isOne(b1) && a2 > 0.7 && b3 > 0) {
+        // Ty1 — safe-account scam: new payee, sweeping the balance, with an in-session add, a
+        // brand-new device, or a sudden new geography (any of the three corroborating tells, §7).
+        if (isOne(b1) && a2 > 0.7 && (b3 > 0 || d1 > 0.5 || g1 > 0.5)) {
             matched.add(Typologies.SAFE_ACCOUNT_SCAM);
+        }
+
+        // Ty3 — purchase scam: a brand-new payee, on an irrevocable real-time rail, for a first-time
+        // modest amount (the marketplace "pay by instant/P2P now" trap). The modest cap distinguishes
+        // it from the safe-account sweep (which drains the balance).
+        if (isOne(b1) && isRealtimeRail(ctx) && isFirstTimeModestAmount(ctx)) {
+            matched.add(Typologies.PURCHASE_SCAM);
         }
 
         // Ty4 — romance / repeat-victim grooming: rising payments to a still-fresh relationship.
@@ -61,7 +76,43 @@ public final class TypologyEvaluator {
             matched.add(Typologies.ROMANCE_REPEAT_VICTIM);
         }
 
+        // Ty7 — mule fan-out: a batch with a high new-counterparty share that also drains the
+        // balance — a compromised account spraying fresh mules in one file. Batch HOLD/BLOCK.
+        if (mp1 > Weights.TY7_MP1_THRESHOLD && mp4 > Weights.TY7_MP4_THRESHOLD) {
+            matched.add(Typologies.MULE_FAN_OUT);
+        }
+
         return matched;
+    }
+
+    /**
+     * Ty6 — payroll redirection: an established corporate batch pattern with at least one line whose
+     * salary IBAN changed (per-line B5 / changed-ref). Unlike the others this is a quarantine rule —
+     * the flagged lines are held while the clean lines proceed to approval — so it is evaluated over
+     * the per-line results, not the batch-aggregate signal map.
+     *
+     * @param batchHasEstablishedPattern whether the account has a recurring batch baseline (rhythmic
+     *                                   payroll history) — supplied by the pipeline from posture/stats
+     * @param lineNameMismatchValues     per-line B5 (name/IBAN mismatch) values for the batch
+     * @return true when the payroll-redirection pattern is present (established pattern ∧ ≥1 mismatch)
+     */
+    public boolean isPayrollRedirection(boolean batchHasEstablishedPattern, List<Double> lineNameMismatchValues) {
+        if (!batchHasEstablishedPattern || lineNameMismatchValues == null) {
+            return false;
+        }
+        return lineNameMismatchValues.stream().anyMatch(v -> v != null && isOne(v));
+    }
+
+    private static boolean isRealtimeRail(SignalContext ctx) {
+        Rail rail = switch (ctx.event().payload()) {
+            case TransferPayload t -> t.rail();
+            default -> null;
+        };
+        return rail == Rail.P2P || rail == Rail.INSTANT;
+    }
+
+    private static boolean isFirstTimeModestAmount(SignalContext ctx) {
+        return ctx.amountCents() > 0 && ctx.amountCents() <= Weights.TY3_MODEST_AMOUNT_CENTS;
     }
 
     /**

@@ -50,7 +50,11 @@ public final class CombineRule {
         int aiScore = ai.score() == null ? 0 : ai.score();
         if (aiScore >= Weights.AI_ESCALATION_THRESHOLD) {
             Verdict escalated = escalateOneBand(engineDecision);
-            return new Combined(escalated, BASIS_ESCALATED, reasonCode, null);
+            // A self-describing basis for the audit trail: which engine band was escalated to which,
+            // and why (the confident stricter co-judge divergence and its score).
+            String basis = "engine " + engineDecision + " escalated to " + escalated
+                    + ": AI co-judge DIVERGE_STRICTER @" + aiScore;
+            return new Combined(escalated, basis, reasonCode, null);
         }
 
         // Stricter but not confident → keep engine decision, flag for review.

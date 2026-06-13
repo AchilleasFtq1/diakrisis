@@ -128,23 +128,38 @@ public class LifecycleService {
     }
 
     /**
-     * Build the transition result. For a batch case (mass-payment) on approval, the held items are
-     * executed and the (empty) remainder reported held, per the {@code {items_executed, items_held}}
-     * contract.
+     * Build the transition result. For a batch case (mass-payment) on approval the CLEAN lines
+     * execute while the quarantined lines stay HELD, per the {@code {items_executed, items_held}}
+     * contract (§8.2 / §11.13): the redirected line is never released by the same approval that lets
+     * the rest of the payroll run. On rejection / cancellation nothing executes and every line is
+     * reported held.
      */
     private LifecycleResult resultFor(DecisionItem decision, LifecycleState target, CaseItem caseItem) {
-        if (caseItem != null && caseItem.getBatchHeldItemIds() != null
-                && !caseItem.getBatchHeldItemIds().isEmpty()) {
+        if (isBatchCase(caseItem)) {
+            List<String> held = caseItem.getBatchHeldItemIds() == null
+                    ? List.of() : List.copyOf(caseItem.getBatchHeldItemIds());
+            List<String> clean = caseItem.getBatchCleanItemIds() == null
+                    ? List.of() : List.copyOf(caseItem.getBatchCleanItemIds());
             if (target == LifecycleState.EXECUTED) {
-                return LifecycleResult.batch(decision.getEventId(), target,
-                        List.copyOf(caseItem.getBatchHeldItemIds()), List.of());
+                // Approval: the clean lines execute; the quarantined lines remain held.
+                return LifecycleResult.batch(decision.getEventId(), target, clean, held);
             }
             if (target == LifecycleState.REJECTED || target == LifecycleState.CANCELLED) {
-                return LifecycleResult.batch(decision.getEventId(), target,
-                        List.of(), List.copyOf(caseItem.getBatchHeldItemIds()));
+                List<String> all = new java.util.ArrayList<>(clean);
+                all.addAll(held);
+                return LifecycleResult.batch(decision.getEventId(), target, List.of(), all);
             }
         }
         return LifecycleResult.of(decision.getEventId(), target);
+    }
+
+    private static boolean isBatchCase(CaseItem caseItem) {
+        if (caseItem == null) {
+            return false;
+        }
+        boolean hasHeld = caseItem.getBatchHeldItemIds() != null && !caseItem.getBatchHeldItemIds().isEmpty();
+        boolean hasClean = caseItem.getBatchCleanItemIds() != null && !caseItem.getBatchCleanItemIds().isEmpty();
+        return hasHeld || hasClean;
     }
 
     private DecisionItem require(String eventId) {

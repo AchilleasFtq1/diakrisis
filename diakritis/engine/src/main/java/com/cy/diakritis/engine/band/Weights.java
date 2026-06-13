@@ -70,4 +70,54 @@ public final class Weights {
     public static final int LOGICAL_AMOUNT_WINDOW_HOURS = 24;
     public static final int HOLD_DEFAULT_MINUTES = 30;
     public static final int X1_HALFLIFE_HOURS = 6;
+
+    // --- Kill-chain horizon: NAMED posture windows -------------------------------------------
+    // Velocity/burst signals reason over the short rolling-runtime window: a burst is only a
+    // burst if it is happening now. Liquidation kill-chains, by contrast, routinely break a
+    // deposit and then drain it DAYS later — so the funds-freed → K1 linkage is given a much
+    // longer horizon than the velocity signals. K1 reads the persisted deposit-break event from
+    // account posture across the whole funds-freed window, even beyond the 72h rolling posture.
+    /** Burst / velocity (V1) horizon in hours — "is this happening right now?". */
+    public static final int POSTURE_VELOCITY_WINDOW_HOURS = 72;
+    /** Funds-freed → K1 liquidation-linkage horizon in hours (7 days). A broken deposit can be
+     *  drained up to a week later; the kill-chain must still recognise the linkage. */
+    public static final int POSTURE_FUNDS_FREED_WINDOW_HOURS = 168;
+    /** Limit-raise (K2) lookback horizon in hours. */
+    public static final int POSTURE_LIMIT_RAISED_WINDOW_HOURS = 72;
+    /** Beneficiary-add-burst (K3) lookback horizon in hours. */
+    public static final int POSTURE_BENEFICIARY_ADD_WINDOW_HOURS = 72;
+
+    // --- Signal tuning constants -------------------------------------------------------------
+    /** A4: an amount within this fraction below a round threshold is "hugging" it. */
+    public static final double A4_HUG_FRACTION = 0.05;
+    /** V1: actions-per-hour baseline above which burst velocity saturates. */
+    public static final int V1_BURST_PER_HOUR_SATURATION = 6;
+    /** C3: server-side raised-amount retry attempts at which retry pressure saturates. */
+    public static final int C3_RETRY_SATURATION = 4;
+    /** D1: device-age decay half-life in days (a fresh device is risky, decaying over ~30-60d). */
+    public static final int D1_DEVICE_AGE_HALFLIFE_DAYS = 21;
+    /** K2: limit-raise coverage saturates once the raised headroom covers this multiple of the amount. */
+    public static final double K2_COVERAGE_SATURATION = 1.0;
+    /** K3: beneficiary-add count at which the add-burst signal saturates. */
+    public static final int K3_ADD_BURST_SATURATION = 3;
+    /** K3: minimum beneficiary adds within the window for the burst to register at all. */
+    public static final int K3_ADD_BURST_MIN = 2;
+    /** MP1: new-counterparty share above which the fan-out tell saturates. */
+    public static final double MP1_SHARE_SATURATION = 1.0;
+    /** MP2: batch-total robust-z floor before the cadence/total anomaly registers. */
+    public static final double MP2_Z_FLOOR = 2.0;
+    /** MP4: batch-drain fraction floor (total/available) before it registers. */
+    public static final double MP4_DRAIN_FLOOR = 0.5;
+    /** MP4: batch-drain span over which the drain fraction saturates. */
+    public static final double MP4_DRAIN_SPAN = 0.5;
+    /** M2: k for the cosine k-NN over fraud exemplars. */
+    public static final int M2_KNN_K = 25;
+
+    // --- Typology tuning constants -----------------------------------------------------------
+    /** Ty3: a "modest" first-time purchase-scam amount ceiling, in euro-cents (€2,000). */
+    public static final long TY3_MODEST_AMOUNT_CENTS = 200_000L;
+    /** Ty7: MP1 (new-counterparty share) threshold for mule fan-out. */
+    public static final double TY7_MP1_THRESHOLD = 0.7;
+    /** Ty7: MP4 (batch drain) threshold for mule fan-out. */
+    public static final double TY7_MP4_THRESHOLD = 0.6;
 }

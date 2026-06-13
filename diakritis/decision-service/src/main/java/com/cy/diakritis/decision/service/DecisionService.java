@@ -30,10 +30,13 @@ import com.cy.diakritis.engine.pipeline.CombineRule;
 import com.cy.diakritis.engine.pipeline.ScoreEngine;
 import com.cy.diakritis.engine.pipeline.ScoreResult;
 import com.cy.diakritis.engine.signal.Identity;
+import com.cy.diakritis.engine.store.GeoResolver;
 import com.cy.diakritis.engine.store.PostureView;
+import com.cy.diakritis.engine.store.ReputationView;
 import com.cy.diakritis.engine.store.RuntimeState;
 import com.cy.diakritis.decision.store.DynamoFeatureStore;
 import com.cy.diakritis.decision.store.DynamoObservationsView;
+import com.cy.diakritis.decision.store.DynamoReputationView;
 import com.cy.diakritis.decision.store.PostureLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,6 +82,8 @@ public class DecisionService {
     private final RuntimeState runtimeState;
     private final DynamoFeatureStore featureStore;
     private final DynamoObservationsView observationsView;
+    private final DynamoReputationView reputationView;
+    private final GeoResolver geoResolver;
     private final PostureLoader postureLoader;
     private final DecisionRepository decisionRepository;
     private final AccountPostureRepository accountPostureRepository;
@@ -93,6 +98,8 @@ public class DecisionService {
                            RuntimeState runtimeState,
                            DynamoFeatureStore featureStore,
                            DynamoObservationsView observationsView,
+                           DynamoReputationView reputationView,
+                           GeoResolver geoResolver,
                            PostureLoader postureLoader,
                            DecisionRepository decisionRepository,
                            AccountPostureRepository accountPostureRepository,
@@ -106,6 +113,8 @@ public class DecisionService {
         this.runtimeState = runtimeState;
         this.featureStore = featureStore;
         this.observationsView = observationsView;
+        this.reputationView = reputationView;
+        this.geoResolver = geoResolver;
         this.postureLoader = postureLoader;
         this.decisionRepository = decisionRepository;
         this.accountPostureRepository = accountPostureRepository;
@@ -132,7 +141,7 @@ public class DecisionService {
 
         PostureView posture = postureLoader.load(event.accountId(), now);
         ScoreResult result = scoreEngine.score(event, featureStore, runtimeState, posture,
-                observationsView, now);
+                observationsView, geoResolver, reputationView, now);
 
         Opinion opinion = aiCoJudge.opine(event, result.engineVerdict());
         Combined combined = combineRule.combine(result.engineVerdict(), opinion, result.reasonCode());
@@ -174,7 +183,7 @@ public class DecisionService {
         commitObservations(event, now);
         commitReputation(event, combined.decision(), now);
         if (isHeldOrApproval(combined.decision())) {
-            openCase(event, principal, combined.decision(), holdExpiresEpochMs, now);
+            openCase(event, principal, combined.decision(), holdExpiresEpochMs, now, result.items());
         }
         return decision;
     }
@@ -271,20 +280,86 @@ public class DecisionService {
         return item;
     }
 
-    /** Record the device/IP/session last-seen observations for recency features on later actions. */
+    private static final String KIND_DEVICE = "DEVICE";
+    private static final String KIND_IP = "IP";
+    private static final String KIND_GEO = "GEO";
+    private static final String KIND_NETWORK = "NETWORK";
+    private static final String KIND_PLATFORM = "PLATFORM";
+    private static final String KIND_ALIAS = "ALIAS";
+
+    /**
+     * Record the behavioural observations a winning decision establishes as the account's baseline:
+     * the device, the IP, its resolved country (GEO) and /24 network prefix (NETWORK), the session
+     * platform (PLATFORM), and — for an alias-addressed payee (MSISDN / e-mail) that resolved to an
+     * account — the alias→account resolution (ALIAS). These are exactly the baselines D1/D2/G1/G2/P1
+     * read on the next action, so the first action seeds the familiar set and the second is judged
+     * against it (e.g. T8's alias re-point fires only because T7 recorded the original resolution).
+     *
+     * <p>The TTL is anchored to {@code now} so the observation rows age out with the rolling window.
+     */
     private void commitObservations(ActionEvent event, Instant now) {
         if (event.context() == null) {
             return;
         }
         long ttlSec = (now.toEpochMilli() + POSTURE_TTL_WINDOW_MS) / MILLIS_PER_SECOND;
+        String sessionId = event.context().sessionId();
+
         if (event.context().device() != null && event.context().device().deviceId() != null) {
-            upsertObservation(event.accountId(), "DEVICE", event.context().device().deviceId(),
-                    event.context().sessionId(), null, now, ttlSec);
+            upsertObservation(event.accountId(), KIND_DEVICE, event.context().device().deviceId(),
+                    sessionId, null, now, ttlSec);
         }
-        if (event.context().ip() != null) {
-            upsertObservation(event.accountId(), "IP", event.context().ip(),
-                    event.context().sessionId(), null, now, ttlSec);
+        if (event.context().device() != null && event.context().device().platform() != null) {
+            upsertObservation(event.accountId(), KIND_PLATFORM,
+                    event.context().device().platform().name(), sessionId, null, now, ttlSec);
         }
+        String ip = event.context().ip();
+        if (ip != null && !ip.isBlank()) {
+            upsertObservation(event.accountId(), KIND_IP, ip, sessionId, null, now, ttlSec);
+            String country = geoResolver.country(ip);
+            if (country != null && !GeoResolver.UNKNOWN.equals(country)) {
+                upsertObservation(event.accountId(), KIND_GEO, country, sessionId, null, now, ttlSec);
+            }
+            String network = slash24(ip);
+            if (network != null) {
+                upsertObservation(event.accountId(), KIND_NETWORK, network, sessionId, null, now, ttlSec);
+            }
+        }
+        commitAliasResolution(event, sessionId, now, ttlSec);
+    }
+
+    /**
+     * Record an alias→account resolution for a P2P/transfer to an MSISDN or e-mail payee, so a later
+     * payment to the same alias that resolves to a DIFFERENT account trips P1 (the SIM-swap re-point
+     * tell). Only aliases that actually resolved to an account this time are recorded.
+     */
+    private void commitAliasResolution(ActionEvent event, String sessionId, Instant now, long ttlSec) {
+        com.cy.diakritis.common.dto.Counterparty cp = switch (event.payload()) {
+            case com.cy.diakritis.common.dto.TransferPayload t -> t.counterparty();
+            case com.cy.diakritis.common.dto.BeneficiaryAddPayload b -> b.counterparty();
+            default -> null;
+        };
+        if (cp == null || cp.value() == null || cp.value().isBlank()) {
+            return;
+        }
+        boolean isAlias = cp.addressing() == com.cy.diakritis.common.dto.Addressing.MSISDN
+                || cp.addressing() == com.cy.diakritis.common.dto.Addressing.EMAIL;
+        if (!isAlias) {
+            return;
+        }
+        String resolvedRef = cp.resolvedAccountRef();
+        if (resolvedRef == null || resolvedRef.isBlank()) {
+            return;
+        }
+        upsertObservation(event.accountId(), KIND_ALIAS, cp.value(), sessionId, resolvedRef, now, ttlSec);
+    }
+
+    /** The /24 network prefix of a dotted-quad IPv4 ({@code 203.0.113.7 → 203.0.113}); null if malformed. */
+    private static String slash24(String ip) {
+        String[] octets = ip.trim().split("\\.");
+        if (octets.length != 4) {
+            return null;
+        }
+        return octets[0] + "." + octets[1] + "." + octets[2];
     }
 
     private void upsertObservation(String accountId, String kind, String value, String sessionId,
@@ -353,7 +428,8 @@ public class DecisionService {
     }
 
     private void openCase(ActionEvent event, AuthPrincipal principal, Verdict decision,
-                          long holdExpiresEpochMs, Instant now) {
+                          long holdExpiresEpochMs, Instant now,
+                          java.util.List<com.cy.diakritis.common.dto.ItemResult> items) {
         CaseItem item = new CaseItem();
         item.setPk(CaseRepository.partitionKeyFor(event.eventId()));
         item.setSk(CaseRepository.sortKey());
@@ -364,6 +440,21 @@ public class DecisionService {
         item.setInitiatorUserId(initiatorSub(event, principal));
         item.setHoldExpiryEpochMs(holdExpiresEpochMs);
         item.setCreatedEpochMs(now.toEpochMilli());
+        // For a mass-payment batch, split the lines so a later approval can execute the clean lines and
+        // keep the quarantined ones held ({items_executed, items_held}).
+        if (items != null && !items.isEmpty()) {
+            java.util.List<String> held = new java.util.ArrayList<>();
+            java.util.List<String> clean = new java.util.ArrayList<>();
+            for (com.cy.diakritis.common.dto.ItemResult line : items) {
+                if (line.decision() == Verdict.HOLD || line.decision() == Verdict.BLOCK) {
+                    held.add(line.itemId());
+                } else {
+                    clean.add(line.itemId());
+                }
+            }
+            item.setBatchHeldItemIds(held);
+            item.setBatchCleanItemIds(clean);
+        }
         caseRepository.save(item);
     }
 

@@ -19,22 +19,41 @@ import com.cy.diakritis.common.dto.Verdict;
 import com.cy.diakritis.engine.band.Band;
 import com.cy.diakritis.engine.band.Bands;
 import com.cy.diakritis.engine.m1.M1Scorer;
+import com.cy.diakritis.engine.m2.M2Scorer;
 import com.cy.diakritis.engine.signal.A1AmountVsAccount;
 import com.cy.diakritis.engine.signal.A2BalanceDrain;
 import com.cy.diakritis.engine.signal.A3AmountVsCounterparty;
+import com.cy.diakritis.engine.signal.A4ThresholdHugging;
 import com.cy.diakritis.engine.signal.B1NewBeneficiary;
 import com.cy.diakritis.engine.signal.B2BeneficiaryRecency;
 import com.cy.diakritis.engine.signal.B3BeneficiaryJustAdded;
 import com.cy.diakritis.engine.signal.B4EstablishedPayee;
 import com.cy.diakritis.engine.signal.B5NameMismatch;
+import com.cy.diakritis.engine.signal.C1OutOfPatternTime;
+import com.cy.diakritis.engine.signal.C3RetryPressure;
+import com.cy.diakritis.engine.signal.D1DeviceAgeDecay;
+import com.cy.diakritis.engine.signal.D2PlatformAnomaly;
+import com.cy.diakritis.engine.signal.G1UnfamiliarGeo;
+import com.cy.diakritis.engine.signal.G2NewNetwork;
 import com.cy.diakritis.engine.signal.Identity;
 import com.cy.diakritis.engine.signal.K1FundsFreed;
+import com.cy.diakritis.engine.signal.K2LimitRaisedRecently;
+import com.cy.diakritis.engine.signal.K3BeneficiaryAddBurst;
 import com.cy.diakritis.engine.signal.M1ModelSignal;
+import com.cy.diakritis.engine.signal.M2ExemplarSignal;
+import com.cy.diakritis.engine.signal.MP1NewCounterpartyShare;
+import com.cy.diakritis.engine.signal.MP2CadenceTotalAnomaly;
+import com.cy.diakritis.engine.signal.MP4BatchDrain;
+import com.cy.diakritis.engine.signal.P1AliasRepoint;
 import com.cy.diakritis.engine.signal.SignalContext;
+import com.cy.diakritis.engine.signal.V1BurstVelocity;
 import com.cy.diakritis.engine.signal.V2RisingAmounts;
+import com.cy.diakritis.engine.signal.X1CrossAccountReputation;
 import com.cy.diakritis.engine.store.FeatureStore;
+import com.cy.diakritis.engine.store.GeoResolver;
 import com.cy.diakritis.engine.store.ObservationsView;
 import com.cy.diakritis.engine.store.PostureView;
+import com.cy.diakritis.engine.store.ReputationView;
 import com.cy.diakritis.engine.store.RuntimeState;
 import com.cy.diakritis.engine.typology.TypologyEvaluator;
 import com.cy.diakritis.engine.typology.Typologies;
@@ -80,11 +99,25 @@ public final class ScoreEngine {
             "PSD2 RTS Art.18 TRA (low value, low fraud-rate)";
 
     private final M1Scorer m1Scorer;
+    private final M2Scorer m2Scorer;
     private final TypologyEvaluator typologyEvaluator;
 
-    public ScoreEngine(M1Scorer m1Scorer, TypologyEvaluator typologyEvaluator) {
+    /**
+     * Full constructor wiring both model scorers. M2 (like M1) is additive and capped, degrading to a
+     * constant 0 when its exemplar index is unavailable.
+     */
+    public ScoreEngine(M1Scorer m1Scorer, M2Scorer m2Scorer, TypologyEvaluator typologyEvaluator) {
         this.m1Scorer = m1Scorer;
+        this.m2Scorer = m2Scorer;
         this.typologyEvaluator = typologyEvaluator;
+    }
+
+    /**
+     * Back-compatible constructor without an M2 scorer. M2 degrades to the empty exemplar index and
+     * contributes nothing, so the deterministic engine and M1 are unaffected.
+     */
+    public ScoreEngine(M1Scorer m1Scorer, TypologyEvaluator typologyEvaluator) {
+        this(m1Scorer, M2Scorer.of(null, null), typologyEvaluator);
     }
 
     /**
@@ -103,9 +136,26 @@ public final class ScoreEngine {
                              PostureView posture,
                              ObservationsView obs,
                              Instant now) {
+        return score(event, store, runtime, posture, obs,
+                GeoResolver.unknownAll(), ReputationView.empty(), now);
+    }
+
+    /**
+     * Score one action with the full geo + cross-account reputation seams wired (G1/G2 and X1). The
+     * narrower overload routes here with the resilient empty seams, so geo and X1 score 0 when a
+     * caller has no geolocation source or reputation store.
+     */
+    public ScoreResult score(ActionEvent event,
+                             FeatureStore store,
+                             RuntimeState runtime,
+                             PostureView posture,
+                             ObservationsView obs,
+                             GeoResolver geo,
+                             ReputationView reputation,
+                             Instant now) {
         return switch (event.eventType()) {
-            case MASS_PAYMENT -> scoreMassPayment(event, store, runtime, posture, obs, now);
-            default -> scoreSingle(event, store, runtime, posture, obs, now);
+            case MASS_PAYMENT -> scoreMassPayment(event, store, runtime, posture, obs, geo, reputation, now);
+            default -> scoreSingle(event, store, runtime, posture, obs, geo, reputation, now);
         };
     }
 
@@ -116,6 +166,8 @@ public final class ScoreEngine {
                                     RuntimeState runtime,
                                     PostureView posture,
                                     ObservationsView obs,
+                                    GeoResolver geo,
+                                    ReputationView reputation,
                                     Instant now) {
         EventType type = event.eventType();
         Rail rail = railOf(event);
@@ -134,7 +186,7 @@ public final class ScoreEngine {
         long logicalAmountCents = runtime.logicalAmountCents(event.accountId(), cpKey, amountCents, now.toEpochMilli());
 
         SignalContext ctx = new SignalContext(
-                event, store, runtime, posture, obs, cpKey,
+                event, store, runtime, posture, obs, geo, reputation, cpKey,
                 logicalAmountCents, amountCents, availableCents, now);
 
         // 2. Evaluate signals.
@@ -195,15 +247,20 @@ public final class ScoreEngine {
                                          RuntimeState runtime,
                                          PostureView posture,
                                          ObservationsView obs,
+                                         GeoResolver geo,
+                                         ReputationView reputation,
                                          Instant now) {
         MassPaymentPayload payload = (MassPaymentPayload) event.payload();
         long availableCents = toCents(payload.availableBalanceEur());
 
         List<ItemResult> itemResults = new ArrayList<>(payload.items().size());
         List<Signal> aggregateSignals = new ArrayList<>();
+        List<Double> lineNameMismatchValues = new ArrayList<>(payload.items().size());
+        List<String> heldLineIds = new ArrayList<>();
         int worstRaw = 0;
         Band worstBand = Band.ALLOW;
         List<String> allTypologies = new ArrayList<>();
+        boolean batchTypologyAdded = false;
 
         for (BatchItem item : payload.items()) {
             String cpKey = Identity.counterpartyKey(item.counterparty());
@@ -213,24 +270,52 @@ public final class ScoreEngine {
             long logicalAmountCents =
                     runtime.logicalAmountCents(event.accountId(), cpKey, amountCents, now.toEpochMilli());
 
+            // Per-line context: the line's own amount/counterparty drives B1/B5/A3/P1 (via the
+            // lineCounterparty override), but the batch-level signals (MP1/MP2/MP4) read the whole
+            // payload from the event, so they are identical across lines. We collect the batch
+            // typologies once (from the first line) to avoid duplication.
             SignalContext ctx = new SignalContext(
-                    event, store, runtime, posture, obs, cpKey,
+                    event, store, runtime, posture, obs, geo, reputation, item.counterparty(), cpKey,
                     logicalAmountCents, amountCents, availableCents, now);
 
             ScoredSignals scored = evaluateSignals(ctx);
             int raw = clip((int) Math.round(scored.totalContribution));
             List<String> typologies = typologyEvaluator.evaluate(scored.values, ctx);
+            lineNameMismatchValues.add(scored.values.getOrDefault("B5", 0.0));
 
             Band band = Bands.bandFor(raw, payload.rail());
             band = applyTypologyOverride(band, typologies, raw);
 
-            itemResults.add(new ItemResult(item.itemId(), toVerdict(band), scored.signals));
+            Verdict lineVerdict = toVerdict(band);
+            if (lineVerdict == Verdict.HOLD || lineVerdict == Verdict.BLOCK) {
+                heldLineIds.add(item.itemId());
+            }
+            itemResults.add(new ItemResult(item.itemId(), lineVerdict, scored.signals));
             aggregateSignals.addAll(scored.signals);
-            allTypologies.addAll(typologies);
+            if (!batchTypologyAdded) {
+                allTypologies.addAll(typologies);
+                batchTypologyAdded = true;
+            } else {
+                // Carry only line-specific typologies forward (batch ones already counted once).
+                for (String t : typologies) {
+                    if (!Typologies.MULE_FAN_OUT.equals(t)) {
+                        allTypologies.add(t);
+                    }
+                }
+            }
             if (band.ordinal() > worstBand.ordinal()) {
                 worstBand = band;
             }
             worstRaw = Math.max(worstRaw, raw);
+        }
+
+        // Ty6 — payroll redirection: an established batch pattern with ≥1 changed-IBAN line. The
+        // flagged lines are quarantined (already item-level HELD above) and the batch proceeds to
+        // approval; this names the pattern for the audit trail and customer/ops messaging.
+        boolean establishedBatchPattern = hasEstablishedBatchPattern(store, event.accountId());
+        if (typologyEvaluator.isPayrollRedirection(establishedBatchPattern, lineNameMismatchValues)
+                && !allTypologies.contains(Typologies.PAYROLL_REDIRECTION)) {
+            allTypologies.add(Typologies.PAYROLL_REDIRECTION);
         }
 
         // Batch-level verdict from the worst item; business accounts route to approval.
@@ -257,21 +342,58 @@ public final class ScoreEngine {
         return new ScoreResult(engineVerdict, reasonCode, explanation, itemResults);
     }
 
+    /**
+     * An account has an "established batch pattern" (rhythmic payroll history) when it is a business
+     * account with a real outgoing baseline — the recurring monthly payroll runs Berka exposes. This
+     * is the precondition Ty6 layers the changed-IBAN line check on top of.
+     */
+    private static boolean hasEstablishedBatchPattern(FeatureStore store, String accountId) {
+        var stats = store.accountStats(accountId);
+        return stats != null && stats.isBusinessAccount() && stats.outTxnCount() > 0;
+    }
+
     // --- signal evaluation -------------------------------------------------------------------
 
     private ScoredSignals evaluateSignals(SignalContext ctx) {
         List<com.cy.diakritis.engine.signal.Signal> signals = List.of(
+                // Beneficiary / counterparty-novelty band
                 new B1NewBeneficiary(),
                 new B2BeneficiaryRecency(),
                 new B3BeneficiaryJustAdded(),
                 new B4EstablishedPayee(),
                 new B5NameMismatch(),
+                // Payment-context band
+                new P1AliasRepoint(),
+                // Amount-anomaly band
                 new A1AmountVsAccount(),
                 new A2BalanceDrain(),
                 new A3AmountVsCounterparty(),
+                new A4ThresholdHugging(),
+                // Velocity band
+                new V1BurstVelocity(),
                 new V2RisingAmounts(),
+                // Channel band
+                new C1OutOfPatternTime(),
+                new C3RetryPressure(),
+                // Geo band
+                new G1UnfamiliarGeo(),
+                new G2NewNetwork(),
+                // Device band
+                new D1DeviceAgeDecay(),
+                new D2PlatformAnomaly(),
+                // Kill-chain / liquidation band
                 new K1FundsFreed(),
-                new M1ModelSignal(m1Scorer)
+                new K2LimitRaisedRecently(),
+                new K3BeneficiaryAddBurst(),
+                // Mass-payment band
+                new MP1NewCounterpartyShare(),
+                new MP2CadenceTotalAnomaly(),
+                new MP4BatchDrain(),
+                // Cross-account band
+                new X1CrossAccountReputation(),
+                // Model bands (additive, capped)
+                new M1ModelSignal(m1Scorer),
+                new M2ExemplarSignal(m2Scorer)
         );
 
         Map<String, Double> values = new LinkedHashMap<>();
@@ -297,20 +419,37 @@ public final class ScoreEngine {
     // --- override / routing helpers ----------------------------------------------------------
 
     /**
-     * Typology override (contract): a single typology match pins the band to exactly HOLD — including
-     * capping a raw score that crossed the BLOCK edge (≥ 85) back down, since BLOCK is reserved for
-     * confirmed multi-typology liquidation. Two or more matches escalate to BLOCK only when the raw
-     * score is also ≥ 85; below that they remain HOLD. A clean (no-typology) band is unchanged.
+     * Raw score at or above which a typology-matched action is a confirmed-fraud BLOCK on its own,
+     * even on a single typology match (§7 / §15: "Two+ matches OR raw score ≥ 90 → BLOCK"). A single
+     * typology normally pins HOLD, but an overwhelming raw score — a maximally-stacked mule fan-out or
+     * drain — is BLOCK regardless of how many distinct typologies were named.
+     */
+    private static final int RAW_BLOCK_ESCALATION = 90;
+
+    /** Raw score at or above which two-or-more typology matches escalate to BLOCK. */
+    private static final int MULTI_TYPOLOGY_BLOCK_EDGE = 85;
+
+    /**
+     * Typology override (§7 / §15): a single typology match pins the band to exactly HOLD — capping a
+     * raw score that merely crossed the BLOCK edge (≥ 85) back down, since one named script alone is a
+     * cooling-off HOLD — UNLESS the raw score is so high (≥ {@value #RAW_BLOCK_ESCALATION}) that the
+     * action is a confirmed-fraud BLOCK on its own. Two or more matches escalate to BLOCK once the raw
+     * score is ≥ {@value #MULTI_TYPOLOGY_BLOCK_EDGE}. A clean (no-typology) band is left to the band
+     * table (which already returns BLOCK at ≥ 85).
      *
-     * <p>This is why the T5b single-typology kill-chain (raw ~85) lands on HOLD rather than BLOCK:
-     * one typology never reaches BLOCK regardless of where the raw score rounds.
+     * <p>This is why the T5b two-typology kill-chain (raw ~82) and the T15a single-typology kill-chain
+     * (raw ~74) both land on HOLD — neither reaches the relevant BLOCK edge — while a maximally-stacked
+     * mule fan-out (raw ≥ 90) reaches BLOCK even though it names a single typology.
      */
     private static Band applyTypologyOverride(Band band, List<String> typologies, int raw) {
         int matches = typologies.size();
         if (matches == 0) {
             return band;
         }
-        if (matches >= 2 && raw >= 85) {
+        if (raw >= RAW_BLOCK_ESCALATION) {
+            return Band.BLOCK;
+        }
+        if (matches >= 2 && raw >= MULTI_TYPOLOGY_BLOCK_EDGE) {
             return Band.BLOCK;
         }
         return Band.HOLD;
@@ -345,6 +484,8 @@ public final class ScoreEngine {
 
     // --- reason codes & explanation ----------------------------------------------------------
 
+    private static final double X1_REASON_THRESHOLD = 0.5;
+
     private static String reasonCode(Verdict decision, List<String> typologies, Map<String, Double> values) {
         if (typologies.contains(Typologies.LIQUIDATION_KILL_CHAIN)) {
             return ReasonCodes.KILLCHAIN;
@@ -354,6 +495,12 @@ public final class ScoreEngine {
         }
         if (typologies.contains(Typologies.SAFE_ACCOUNT_SCAM)) {
             return ReasonCodes.SAFE_ACCOUNT;
+        }
+        // X1 cross-account reputation: a flagged destination drives the DKR-XACCT reason even without a
+        // named typology, since the moat fires on identity-level reputation rather than a script shape.
+        if (decision != Verdict.ALLOW
+                && values.getOrDefault("X1", 0.0) >= X1_REASON_THRESHOLD) {
+            return ReasonCodes.XACCT;
         }
         if (decision == Verdict.ALLOW) {
             return ReasonCodes.NONE;
@@ -378,11 +525,12 @@ public final class ScoreEngine {
             return new Explanation(null, audit);
         }
 
-        String customer = customerMessage(type, typologies, counterparty);
+        String customer = customerMessage(decision, type, typologies, counterparty);
         return new Explanation(customer, audit);
     }
 
-    private static String customerMessage(EventType type, List<String> typologies, Counterparty counterparty) {
+    private static String customerMessage(Verdict decision, EventType type, List<String> typologies,
+                                          Counterparty counterparty) {
         if (type == EventType.TERM_DEPOSIT_BREAK) {
             return "Breaking this term deposit will release your funds early and incur a penalty — "
                     + "please confirm the purpose of this withdrawal before we proceed.";
@@ -404,6 +552,32 @@ public final class ScoreEngine {
         if (typologies.contains(Typologies.SAFE_ACCOUNT_SCAM)) {
             return "Moving most of your balance to a payee added moments ago matches the 'safe account' "
                     + "scam — we have paused this so you can verify the request is genuine.";
+        }
+        if (typologies.contains(Typologies.PURCHASE_SCAM)) {
+            return "You are about to send an instant, irreversible payment to a brand-new payee for a "
+                    + "purchase — this is a common marketplace scam, so we have paused it for you to verify "
+                    + "the seller first.";
+        }
+        if (typologies.contains(Typologies.PAYROLL_REDIRECTION)) {
+            return "One or more lines in this batch pay an account whose details changed since the last "
+                    + "run — a common payroll-redirection scam — so we have quarantined the affected lines "
+                    + "for approval while the rest proceed.";
+        }
+        if (typologies.contains(Typologies.MULE_FAN_OUT)) {
+            return "This batch sends most of your balance to many brand-new accounts at once, which "
+                    + "matches a money-mule fan-out — we have paused it for review.";
+        }
+        // Confirmation-of-Payee prompt: a first-time send to a payee we resolved by name (a P2P alias
+        // or a new IBAN) gets a CONFIRM that shows the resolved name back to the customer so they can
+        // confirm they are paying who they think before the (often irrevocable) payment leaves.
+        if (decision == Verdict.CONFIRM
+                && (type == EventType.P2P_TRANSFER || type == EventType.TRANSFER)
+                && counterparty != null
+                && counterparty.resolvedName() != null
+                && !counterparty.resolvedName().isBlank()) {
+            return "You are sending this to " + counterparty.resolvedName()
+                    + " — please confirm this is the right person before we send it, as the payment may "
+                    + "not be reversible.";
         }
         return "This payment is unusual for your account, so we have paused it for you to confirm.";
     }

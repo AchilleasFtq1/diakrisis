@@ -21,6 +21,7 @@ public class CaseItem {
     private String approverUserId;
     private long holdExpiryEpochMs;
     private List<String> batchHeldItemIds;
+    private List<String> batchCleanItemIds;
     private long createdEpochMs;
 
     @DynamoDbPartitionKey
@@ -87,6 +88,14 @@ public class CaseItem {
 
     public void setBatchHeldItemIds(List<String> batchHeldItemIds) {
         this.batchHeldItemIds = batchHeldItemIds;
+    }
+
+    public List<String> getBatchCleanItemIds() {
+        return batchCleanItemIds;
+    }
+
+    public void setBatchCleanItemIds(List<String> batchCleanItemIds) {
+        this.batchCleanItemIds = batchCleanItemIds;
     }
 
     public long getCreatedEpochMs() {

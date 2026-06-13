@@ -92,8 +92,9 @@ public final class Features {
         // 14. amt_ratio = amount / mean(prior payments same account), first occurrence → 1.0, cap 50.
         v[13] = amountRatio(ctx, amountCents);
 
-        // 15-16. email flags ↔ counterparty-type proxy.
-        String emailDomain = emailDomain(counterpartyOf(event));
+        // 15-16. email flags ↔ counterparty-type proxy. Use the context counterparty so a batch line's
+        // own payee (the §4A per-line override) is honoured, not the whole-batch payload.
+        String emailDomain = emailDomain(ctx.counterparty());
         v[14] = (emailDomain == null) ? 1.0 : 0.0;
         v[15] = (emailDomain != null && FREE_MAIL.contains(emailDomain)) ? 1.0 : 0.0;
 
@@ -141,14 +142,6 @@ public final class Features {
         }
         double ratio = (double) amountCents / (double) meanPrior;
         return Math.min(ratio, AMT_RATIO_CAP);
-    }
-
-    private static Counterparty counterpartyOf(ActionEvent event) {
-        return switch (event.payload()) {
-            case com.cy.diakritis.common.dto.TransferPayload t -> t.counterparty();
-            case com.cy.diakritis.common.dto.BeneficiaryAddPayload b -> b.counterparty();
-            default -> null;
-        };
     }
 
     /** Lower-cased email domain when the counterparty is e-mail addressed, else null. */

@@ -26,7 +26,7 @@ public final class B5NameMismatch implements Signal {
 
     @Override
     public double value(SignalContext ctx) {
-        Counterparty cp = counterpartyOf(ctx);
+        Counterparty cp = ctx.counterparty();
         if (cp == null) {
             return 0.0;
         }
@@ -53,13 +53,5 @@ public final class B5NameMismatch implements Signal {
                 && !establishedIban.equals(cp.resolvedAccountRef());
 
         return (keyDiffers || ibanDiffers) ? 1.0 : 0.0;
-    }
-
-    private static Counterparty counterpartyOf(SignalContext ctx) {
-        return switch (ctx.event().payload()) {
-            case com.cy.diakritis.common.dto.TransferPayload t -> t.counterparty();
-            case com.cy.diakritis.common.dto.BeneficiaryAddPayload b -> b.counterparty();
-            default -> null;
-        };
     }
 }

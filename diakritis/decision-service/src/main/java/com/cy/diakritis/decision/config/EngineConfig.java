@@ -4,8 +4,11 @@ import com.cy.diakritis.decision.EngineProperties;
 import com.cy.diakritis.engine.judge.AiCoJudge;
 import com.cy.diakritis.engine.judge.UnavailableAiCoJudge;
 import com.cy.diakritis.engine.m1.M1Scorer;
+import com.cy.diakritis.engine.m2.M2Scorer;
 import com.cy.diakritis.engine.pipeline.CombineRule;
 import com.cy.diakritis.engine.pipeline.ScoreEngine;
+import com.cy.diakritis.engine.store.CidrGeoResolver;
+import com.cy.diakritis.engine.store.GeoResolver;
 import com.cy.diakritis.engine.store.RuntimeState;
 import com.cy.diakritis.engine.typology.TypologyEvaluator;
 import org.slf4j.Logger;
@@ -45,18 +48,38 @@ public class EngineConfig {
     }
 
     @Bean
+    M2Scorer m2Scorer(EngineProperties properties) {
+        Path modelsDir = Path.of(properties.getModelsDir());
+        M2Scorer scorer = M2Scorer.load(modelsDir);
+        LOG.info("M2Scorer constructed from models-dir={} (loaded={})", modelsDir, scorer.isLoaded());
+        return scorer;
+    }
+
+    @Bean
     TypologyEvaluator typologyEvaluator() {
         return new TypologyEvaluator();
     }
 
     @Bean
-    ScoreEngine scoreEngine(M1Scorer m1Scorer, TypologyEvaluator typologyEvaluator) {
-        return new ScoreEngine(m1Scorer, typologyEvaluator);
+    ScoreEngine scoreEngine(M1Scorer m1Scorer, M2Scorer m2Scorer, TypologyEvaluator typologyEvaluator) {
+        return new ScoreEngine(m1Scorer, m2Scorer, typologyEvaluator);
     }
 
     @Bean
     RuntimeState runtimeState() {
         return new RuntimeState();
+    }
+
+    /**
+     * The §5/§6 geo seam: a local longest-prefix-match CIDR→country resolver seeded from
+     * {@code diakrisis.geo-cidrs} (Cyprus home + foreign Jordan ranges by default). It needs no
+     * network or geolocation file, so G1/G2 are deterministic and self-contained.
+     */
+    @Bean
+    GeoResolver geoResolver(EngineProperties properties) {
+        CidrGeoResolver resolver = CidrGeoResolver.of(properties.getGeoCidrs());
+        LOG.info("GeoResolver constructed from {} CIDR block(s)", properties.getGeoCidrs().size());
+        return resolver;
     }
 
     @Bean

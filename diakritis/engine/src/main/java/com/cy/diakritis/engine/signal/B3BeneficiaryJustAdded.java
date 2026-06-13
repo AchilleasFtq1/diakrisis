@@ -32,7 +32,7 @@ public final class B3BeneficiaryJustAdded implements Signal {
         Instant now = ctx.now();
         long nowMs = now.toEpochMilli();
 
-        Counterparty cp = counterpartyOf(ctx);
+        Counterparty cp = ctx.counterparty();
         if (cp != null && cp.beneficiaryCreatedAt() != null) {
             long createdMs = cp.beneficiaryCreatedAt().toEpochMilli();
             long age = nowMs - createdMs;
@@ -46,13 +46,5 @@ public final class B3BeneficiaryJustAdded implements Signal {
             return 1.0;
         }
         return 0.0;
-    }
-
-    private static Counterparty counterpartyOf(SignalContext ctx) {
-        return switch (ctx.event().payload()) {
-            case com.cy.diakritis.common.dto.TransferPayload t -> t.counterparty();
-            case com.cy.diakritis.common.dto.BeneficiaryAddPayload b -> b.counterparty();
-            default -> null;
-        };
     }
 }

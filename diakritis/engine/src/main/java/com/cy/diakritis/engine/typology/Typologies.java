@@ -9,8 +9,11 @@ public final class Typologies {
     private Typologies() {
     }
 
+    public static final String SAFE_ACCOUNT_SCAM = "safe_account_scam";
     public static final String INVOICE_REDIRECTION = "invoice_redirection";
+    public static final String PURCHASE_SCAM = "purchase_scam";
     public static final String ROMANCE_REPEAT_VICTIM = "romance_repeat_victim";
     public static final String LIQUIDATION_KILL_CHAIN = "liquidation_kill_chain";
-    public static final String SAFE_ACCOUNT_SCAM = "safe_account_scam";
+    public static final String PAYROLL_REDIRECTION = "payroll_redirection";
+    public static final String MULE_FAN_OUT = "mule_fan_out";
 }
