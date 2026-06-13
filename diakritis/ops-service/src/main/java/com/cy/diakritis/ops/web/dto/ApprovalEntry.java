@@ -2,11 +2,13 @@ package com.cy.diakritis.ops.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
 /**
- * An approval-pending case awaiting an approver's action.
+ * An approval-pending case awaiting an approver's action. {@code amountEur} is joined from the
+ * matching {@code Decisions} row (null if no decision amount is recorded).
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ApprovalEntry(
@@ -15,6 +17,7 @@ public record ApprovalEntry(
         String initiatorUserId,
         Instant holdExpiresAt,
         List<String> batchHeldItemIds,
-        Instant createdAt
+        Instant createdAt,
+        BigDecimal amountEur
 ) {
 }

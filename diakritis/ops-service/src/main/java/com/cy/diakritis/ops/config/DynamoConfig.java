@@ -1,9 +1,11 @@
 package com.cy.diakritis.ops.config;
 
+import com.cy.diakritis.common.persistence.AccountPostureItem;
 import com.cy.diakritis.common.persistence.CaseItem;
 import com.cy.diakritis.common.persistence.DecisionItem;
 import com.cy.diakritis.common.persistence.DynamoConfigSupport;
 import com.cy.diakritis.common.persistence.DynamoProperties;
+import com.cy.diakritis.common.persistence.ObservationItem;
 import com.cy.diakritis.common.persistence.OutcomeItem;
 import com.cy.diakritis.common.persistence.TableBootstrap;
 import com.cy.diakritis.common.persistence.TableSchema;
@@ -33,7 +35,9 @@ public class DynamoConfig {
             TableBootstrap.createIfMissing(client, List.of(
                     TableSchema.of(Tables.DECISIONS, "pk", "sk"),
                     TableSchema.of(Tables.CASES, "pk", "sk"),
-                    TableSchema.of(Tables.OUTCOMES, "pk", "sk")));
+                    TableSchema.of(Tables.OUTCOMES, "pk", "sk"),
+                    TableSchema.of(Tables.ACCOUNT_POSTURE, "pk", "sk"),
+                    TableSchema.of(Tables.OBSERVATIONS, "pk", "sk")));
         }
         return client;
     }
@@ -59,5 +63,17 @@ public class DynamoConfig {
     DynamoDbTable<OutcomeItem> outcomeTable(DynamoDbEnhancedClient enhanced) {
         return enhanced.table(Tables.OUTCOMES,
                 software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(OutcomeItem.class));
+    }
+
+    @Bean
+    DynamoDbTable<AccountPostureItem> accountPostureTable(DynamoDbEnhancedClient enhanced) {
+        return enhanced.table(Tables.ACCOUNT_POSTURE,
+                software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(AccountPostureItem.class));
+    }
+
+    @Bean
+    DynamoDbTable<ObservationItem> observationTable(DynamoDbEnhancedClient enhanced) {
+        return enhanced.table(Tables.OBSERVATIONS,
+                software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(ObservationItem.class));
     }
 }

@@ -21,6 +21,7 @@ import java.util.Map;
 public record CountersView(
         long total,
         Map<String, Long> byLifecycleState,
+        Map<String, Long> byOutcome,
         long confirmedSaves,
         long falsePositives,
         long moneySavedCents,
