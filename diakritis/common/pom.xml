@@ -31,19 +31,13 @@
             <artifactId>spring-web</artifactId>
         </dependency>
 
-        <!-- Jackson is no longer a transitive compile dep of spring-boot-starter in 4.x;
-             DTOs and the custom deserializer need it at compile scope -->
+        <!-- Jackson 3 is no longer a transitive compile dep of spring-boot-starter in 4.x.
+             The DTOs and the custom ActionEvent deserializer are bound at runtime by the apps'
+             Jackson 3 (tools.jackson) mapper, so the annotation + deserializer must target
+             Jackson 3 — a Jackson 2 annotation is silently ignored by the Jackson 3 mapper. -->
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
+            <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-annotations</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
         <!-- Servlet API for the JWT filter (provided by the running app) -->

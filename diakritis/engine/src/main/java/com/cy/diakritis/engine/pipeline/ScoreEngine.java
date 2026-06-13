@@ -297,18 +297,23 @@ public final class ScoreEngine {
     // --- override / routing helpers ----------------------------------------------------------
 
     /**
-     * One typology match pins the band to at least HOLD; two or more matches on an already-high raw
-     * score (≥ 85) escalate to BLOCK. A clean (no-typology) band is returned unchanged.
+     * Typology override (contract): a single typology match pins the band to exactly HOLD — including
+     * capping a raw score that crossed the BLOCK edge (≥ 85) back down, since BLOCK is reserved for
+     * confirmed multi-typology liquidation. Two or more matches escalate to BLOCK only when the raw
+     * score is also ≥ 85; below that they remain HOLD. A clean (no-typology) band is unchanged.
+     *
+     * <p>This is why the T5b single-typology kill-chain (raw ~85) lands on HOLD rather than BLOCK:
+     * one typology never reaches BLOCK regardless of where the raw score rounds.
      */
     private static Band applyTypologyOverride(Band band, List<String> typologies, int raw) {
         int matches = typologies.size();
+        if (matches == 0) {
+            return band;
+        }
         if (matches >= 2 && raw >= 85) {
             return Band.BLOCK;
         }
-        if (matches >= 1 && band.ordinal() < Band.HOLD.ordinal()) {
-            return Band.HOLD;
-        }
-        return band;
+        return Band.HOLD;
     }
 
     /**

@@ -4,7 +4,7 @@ import com.cy.diakritis.bank.security.ForbiddenException;
 import com.cy.diakritis.bank.security.UnauthorizedException;
 import com.cy.diakritis.bank.service.BadRequestException;
 import com.cy.diakritis.bank.service.ResourceNotFoundException;
-import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import tools.jackson.databind.exc.InvalidFormatException;
 import io.jsonwebtoken.JwtException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

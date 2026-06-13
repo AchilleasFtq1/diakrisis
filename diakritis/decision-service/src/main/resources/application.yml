@@ -1,0 +1,30 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: decision-service
+  threads:
+    virtual:
+      enabled: true
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: true
+
+diakrisis:
+  models-dir: ${DIAKRISIS_MODELS_DIR:/Users/achilleaseftychiou/Documents/Projects/diakrisis/diakrisis-models}
+  jwt:
+    # Override in production via DIAKRISIS_JWT_SECRET; must be >= 32 bytes for HS256.
+    secret: ${DIAKRISIS_JWT_SECRET:diakrisis-local-development-secret-key-change-me}
+  dynamo:
+    endpoint: ${DIAKRISIS_DYNAMO_ENDPOINT:http://localhost:8000}
+    region: us-east-1
+    auto-create: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
