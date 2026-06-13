@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Demo Bank — error</title>
+    <link rel="stylesheet" th:href="@{/styles.css}"/>
+</head>
+<body>
+<header>
+    <h1><a th:href="@{/}">Demo Bank</a></h1>
+</header>
+<main>
+    <section class="verdict block">
+        <div class="verdict-head"><span class="badge" th:text="${errorTitle}">Error</span></div>
+        <p class="applied" th:text="${errorMessage}">Something went wrong.</p>
+    </section>
+    <p><a class="btn" th:href="@{/}">Back to accounts</a></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Diakrisis verdict</title>
+    <link rel="stylesheet" th:href="@{/styles.css}"/>
+</head>
+<body>
+<header>
+    <h1><a th:href="@{/}">Demo Bank</a></h1>
+    <p class="sub">Live verdict for account <strong th:text="${account.id}">acc-A</strong></p>
+</header>
+
+<main>
+    <section class="verdict"
+             th:classappend="${result.verdict} == 'ALLOW' ? 'allow'
+                 : (${result.verdict} == 'BLOCK' ? 'block'
+                 : (${result.verdict} == 'HOLD' ? 'hold' : 'caution'))">
+        <div class="verdict-head">
+            <span class="badge" th:text="${result.verdict}">ALLOW</span>
+            <span class="event-type" th:text="${result.eventType}">TRANSFER</span>
+        </div>
+
+        <p class="applied" th:text="${result.message}">Transfer executed.</p>
+
+        <dl>
+            <dt>Applied to balance?</dt>
+            <dd th:text="${result.applied} ? 'YES — balance changed' : 'NO — balance unchanged'">YES</dd>
+
+            <dt th:if="${result.decision.engineVerdict != null}">Engine score</dt>
+            <dd th:if="${result.decision.engineVerdict != null}"
+                th:text="${result.decision.engineVerdict.score}">12</dd>
+
+            <dt th:if="${!result.typologies.isEmpty()}">Pattern(s) named</dt>
+            <dd th:if="${!result.typologies.isEmpty()}">
+                <span class="typology" th:each="t : ${result.typologies}" th:text="${t}">liquidation_kill_chain</span>
+            </dd>
+
+            <dt th:if="${result.decision.reasonCode != null}">Reason code</dt>
+            <dd th:if="${result.decision.reasonCode != null}" th:text="${result.decision.reasonCode}">DKR-KILLCHAIN</dd>
+
+            <dt th:if="${result.decision.customerExplanation() != null}">Customer explanation</dt>
+            <dd th:if="${result.decision.customerExplanation() != null}"
+                th:text="${result.decision.customerExplanation()}">…</dd>
+
+            <dt th:if="${result.decision.auditExplanation() != null}">Audit explanation</dt>
+            <dd class="audit" th:if="${result.decision.auditExplanation() != null}"
+                th:text="${result.decision.auditExplanation()}">…</dd>
+
+            <dt>Decision latency</dt>
+            <dd th:text="${result.decision.latencyMs} + ' ms'">7 ms</dd>
+        </dl>
+    </section>
+
+    <section class="balance">
+        <span class="label">Balance now</span>
+        <span class="amount"><span th:text="${account.availableBalanceEur}">4500.00</span> EUR</span>
+    </section>
+
+    <p><a class="btn" th:href="@{'/accounts/' + ${account.id}}">Back to account</a></p>
+</main>
+</body>
+</html>

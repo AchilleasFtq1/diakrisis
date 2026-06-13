@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      demo-bank: a SMALL standalone dummy bank that is a TEST CONSUMER of the Diakrisis fraud APIs.
+      It is NOT part of the Diakrisis product and NOT a module of the diakritis reactor: it has its
+      own canonical spring-boot-starter-parent and builds with `cd demo-bank && mvn clean package`
+      alone, depending on nothing from the reactor (it talks to Diakrisis only over HTTP).
+
+      Stack: Spring Boot 4.1.0, Java 26, SQLite (xerial sqlite-jdbc + JdbcTemplate, NO JPA),
+      Spring MVC + Thymeleaf (server-rendered, NO React). Port :9000.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.cy.demobank</groupId>
+    <artifactId>demo-bank</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>Diakrisis Demo Bank</name>
+    <description>Standalone dummy bank that drives the Diakrisis decision API (test consumer, :9000)</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <java.version>26</java.version>
+        <maven.compiler.release>26</maven.compiler.release>
+        <sqlite-jdbc.version>3.50.1.0</sqlite-jdbc.version>
+    </properties>
+
+    <dependencies>
+        <!-- Spring MVC + Thymeleaf server-rendered pages and the tiny JSON REST surface. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+        <!-- @Valid on the form/REST request DTOs. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- JdbcTemplate over SQLite (NO JPA). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>${sqlite-jdbc.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

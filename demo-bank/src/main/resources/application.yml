@@ -1,0 +1,39 @@
+# demo-bank runtime configuration. Standalone test consumer of the Diakrisis APIs.
+server:
+  port: 9000
+
+spring:
+  application:
+    name: demo-bank
+  # SQLite via JdbcTemplate (NO JPA). The file lives next to the working directory so a fresh
+  # `schema.sql` + seed run on every boot keeps demos deterministic.
+  datasource:
+    url: jdbc:sqlite:demo-bank.db
+    driver-class-name: org.sqlite.JDBC
+    # SQLite is single-writer; a small pool with a generous timeout avoids SQLITE_BUSY under the
+    # demo's light concurrency.
+    hikari:
+      maximum-pool-size: 1
+      connection-timeout: 10000
+  # schema.sql + the seed are applied by SqliteSchemaInitializer (idempotent), not spring.sql.init,
+  # so we can drop+recreate deterministically and seed via JdbcTemplate.
+  thymeleaf:
+    cache: false
+
+# Diakrisis service base-urls. The API gateway does not exist yet, so we call the services DIRECTLY.
+# Once the gateway is up at :8080, set diakrisis.gateway.base-url and BOTH iam + decision repoint to
+# it (see DiakrisisProperties): a single override moves every call behind the gateway with no rebuild.
+diakrisis:
+  gateway:
+    base-url: ""                       # e.g. http://localhost:8080 — overrides both when set
+  iam:
+    base-url: http://localhost:8083    # POST /auth/login
+  decision:
+    base-url: http://localhost:8081    # POST /decision (Bearer)
+  # Credentials demo-bank uses to obtain a JWT per owning customer. Passwords are the seeded "demo".
+  auth:
+    password: demo
+
+logging:
+  level:
+    com.cy.demobank: INFO

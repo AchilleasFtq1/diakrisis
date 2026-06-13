@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Demo Bank — Diakrisis test consumer</title>
+    <link rel="stylesheet" th:href="@{/styles.css}"/>
+</head>
+<body>
+<header>
+    <h1>Demo Bank</h1>
+    <p class="sub">A standalone test consumer of the Diakrisis fraud decision API.</p>
+</header>
+
+<main>
+    <h2>Demo accounts</h2>
+    <table>
+        <thead>
+        <tr>
+            <th>Account</th>
+            <th>Name</th>
+            <th>Owner</th>
+            <th class="num">Balance (EUR)</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="acct : ${accounts}">
+            <td th:text="${acct.id}">acc-A</td>
+            <td th:text="${acct.displayName}">Demo Retail Account A</td>
+            <td th:text="${acct.ownerUser}">customer-A</td>
+            <td class="num" th:text="${acct.availableBalanceEur}">4500.00</td>
+            <td><a class="btn" th:href="@{'/accounts/' + ${acct.id}}">Open</a></td>
+        </tr>
+        </tbody>
+    </table>
+</main>
+</body>
+</html>
