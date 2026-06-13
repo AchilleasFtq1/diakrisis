@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Activity, Award, Network, ShieldCheck, Users, UserCog, LogOut, Radar } from 'lucide-react';
+import { Activity, Award, BookOpen, Network, ShieldCheck, Users, UserCog, LogOut, Radar } from 'lucide-react';
 import { clearSession, loadSession } from '../lib/auth';
 import type { ReactNode } from 'react';
 
@@ -9,6 +9,7 @@ const NAV = [
   { to: '/accounts', label: 'Accounts', icon: Users },
   { to: '/beneficiaries', label: 'Beneficiaries', icon: Network },
   { to: '/outcomes', label: 'Outcomes', icon: Award },
+  { to: '/reference', label: 'Reference', icon: BookOpen },
   { to: '/admin', label: 'Admin', icon: UserCog, adminOnly: true },
 ];
 
