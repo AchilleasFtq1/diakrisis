@@ -225,6 +225,52 @@ public class UserService {
         LOG.info("Deleted user {}", username);
     }
 
+    /** Admin password reset — re-hash and store a new password. The plaintext is never logged. */
+    public UserItem resetPassword(String username, String rawPassword) {
+        if (rawPassword == null || rawPassword.isBlank()) {
+            throw new BadRequestException("password must not be blank");
+        }
+        UserItem user = getUser(username);
+        user.setPasswordHash(passwordHasher.hash(rawPassword));
+        userRepository.save(user);
+        LOG.info("Admin reset password for user {}", username);
+        return user;
+    }
+
+    /**
+     * Rename a user. Username is the partition key, so this re-keys the record: the same identity
+     * (userId, password hash, roles, account, enabled, created-at) is written under the new username and
+     * the old row is deleted. The new username must be free. The user's existing refresh tokens still
+     * reference the old username, so they can no longer be exchanged (forced re-login) — access tokens
+     * already issued remain valid only until they expire.
+     */
+    public UserItem rename(String username, String newUsername) {
+        if (newUsername == null || newUsername.isBlank()) {
+            throw new BadRequestException("new username must not be blank");
+        }
+        String target = newUsername.trim();
+        UserItem existing = getUser(username); // 404 if the source user is unknown
+        if (target.equals(username)) {
+            return existing; // no-op rename
+        }
+        if (userRepository.existsByUsername(target)) {
+            throw new ConflictException("Username already taken: " + target);
+        }
+        UserItem renamed = new UserItem();
+        renamed.setPk(UserRepository.partitionKeyFor(target));
+        renamed.setUserId(existing.getUserId());
+        renamed.setUsername(target);
+        renamed.setPasswordHash(existing.getPasswordHash());
+        renamed.setRoles(existing.getRoles());
+        renamed.setAccountId(existing.getAccountId());
+        renamed.setEnabled(existing.isEnabled());
+        renamed.setCreatedEpochMs(existing.getCreatedEpochMs());
+        userRepository.save(renamed);
+        userRepository.deleteByUsername(username);
+        LOG.info("Renamed user {} -> {}", username, target);
+        return renamed;
+    }
+
     // --- helpers ------------------------------------------------------------------------------
 
     /**

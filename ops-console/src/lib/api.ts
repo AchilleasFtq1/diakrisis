@@ -180,6 +180,16 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(body),
       }),
+    resetPassword: (username: string, password: string) =>
+      request<UserView>(`/admin/users/${encodeURIComponent(username)}/password`, {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+      }),
+    renameUser: (username: string, newUsername: string) =>
+      request<UserView>(`/admin/users/${encodeURIComponent(username)}/username`, {
+        method: 'POST',
+        body: JSON.stringify({ new_username: newUsername }),
+      }),
     assignRole: (username: string, role: string) =>
       request<UserView>(`/admin/users/${encodeURIComponent(username)}/roles`, {
         method: 'POST',

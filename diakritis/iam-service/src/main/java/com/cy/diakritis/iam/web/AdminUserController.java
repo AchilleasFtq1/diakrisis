@@ -7,6 +7,8 @@ import com.cy.diakritis.iam.service.UserService;
 import com.cy.diakritis.iam.web.dto.AdminCreateUserRequest;
 import com.cy.diakritis.iam.web.dto.AdminUpdateUserRequest;
 import com.cy.diakritis.iam.web.dto.AssignRoleRequest;
+import com.cy.diakritis.iam.web.dto.RenameUserRequest;
+import com.cy.diakritis.iam.web.dto.ResetPasswordRequest;
 import com.cy.diakritis.iam.web.dto.UserView;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -82,6 +84,23 @@ public class AdminUserController {
         Role role = UserService.parseRole(request.role())
                 .orElseThrow(() -> new BadRequestException("role is required"));
         return UserView.from(userService.assignRole(username, role));
+    }
+
+    @Operation(summary = "Reset a user's password",
+            description = "ADMIN only. Sets a new BCrypt-hashed password. 404 if the user does not exist.")
+    @PostMapping("/{username}/password")
+    public UserView resetPassword(@PathVariable("username") String username,
+                                  @Valid @RequestBody ResetPasswordRequest request) {
+        return UserView.from(userService.resetPassword(username, request.password()));
+    }
+
+    @Operation(summary = "Rename a user",
+            description = "ADMIN only. Re-keys the user to a new username (must be free; 409 if taken). "
+                    + "Invalidates the user's existing refresh tokens.")
+    @PostMapping("/{username}/username")
+    public UserView rename(@PathVariable("username") String username,
+                           @Valid @RequestBody RenameUserRequest request) {
+        return UserView.from(userService.rename(username, request.newUsername()));
     }
 
     @Operation(summary = "Disable a user", description = "ADMIN only. Disabled users cannot log in (403).")

@@ -31,14 +31,14 @@ export default function AdminUsers() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ username: '', password: '', role: 'OPS' as Role, account_id: '' });
   const [editing, setEditing] = useState<UserView | null>(null);
-  const [editForm, setEditForm] = useState({ role: 'OPS', account_id: '', enabled: true });
+  const [editForm, setEditForm] = useState({ username: '', role: 'OPS', account_id: '', enabled: true, password: '' });
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const users = useQuery({ queryKey: ['admin-users'], queryFn: api.admin.users, enabled: isAdmin });
 
   useEffect(() => {
     if (editing) {
-      setEditForm({ role: editing.roles?.[0] ?? 'CUSTOMER', account_id: editing.account_id ?? '', enabled: editing.enabled });
+      setEditForm({ username: editing.username, role: editing.roles?.[0] ?? 'CUSTOMER', account_id: editing.account_id ?? '', enabled: editing.enabled, password: '' });
     }
   }, [editing]);
 
@@ -63,14 +63,26 @@ export default function AdminUsers() {
     onError: fail,
   });
   const updateMut = useMutation({
-    mutationFn: () =>
-      api.admin.updateUser(editing!.username, {
+    // Sequenced so the username re-key happens LAST (after role/account/password under the old key).
+    mutationFn: async () => {
+      const current = editing!.username;
+      const target = editForm.username.trim();
+      await api.admin.updateUser(current, {
         role: editForm.role,
         enabled: editForm.enabled,
         account_id: editForm.account_id.trim() ? editForm.account_id.trim() : undefined,
-      }),
-    onSuccess: (u) => {
-      setBanner({ kind: 'ok', text: `Updated ${u.username} → ${u.roles.join(', ')}${u.enabled ? '' : ' (disabled)'}` });
+      });
+      if (editForm.password.trim()) {
+        await api.admin.resetPassword(current, editForm.password.trim());
+      }
+      if (target && target !== current) {
+        await api.admin.renameUser(current, target);
+      }
+    },
+    onSuccess: () => {
+      const pw = editForm.password.trim() ? ' · password reset' : '';
+      const renamed = editForm.username.trim() && editForm.username.trim() !== editing!.username ? ` · renamed to ${editForm.username.trim()}` : '';
+      setBanner({ kind: 'ok', text: `Updated ${editing!.username}${renamed}${pw}.` });
       setEditing(null);
       refresh();
     },
@@ -168,7 +180,10 @@ export default function AdminUsers() {
 
         {editing && (
           <Panel title={`Edit ${editing.username}`} right={<button onClick={() => setEditing(null)} className="text-muted hover:text-fg"><X size={14} /></button>}>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Field label="Username">
+                <input value={editForm.username} disabled={editingSelf} onChange={(e) => setEditForm({ ...editForm, username: e.target.value })} className={`${inputCls} disabled:opacity-40`} placeholder="username" />
+              </Field>
               <Field label="Role">
                 <select value={editForm.role} disabled={editingSelf} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className={`${inputCls} disabled:opacity-40`}>
                   {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -183,15 +198,20 @@ export default function AdminUsers() {
                   <option value="disabled">Disabled</option>
                 </select>
               </Field>
+              <Field label="New password (optional)">
+                <input type="password" value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} className={inputCls} placeholder="leave blank to keep" />
+              </Field>
               <button
                 onClick={() => updateMut.mutate()}
-                disabled={busy}
-                className="flex items-center justify-center gap-1.5 h-[38px] text-[12px] font-semibold text-ink bg-allow hover:bg-allow/90 rounded px-3 disabled:opacity-45 disabled:cursor-not-allowed"
+                disabled={busy || (!!editForm.password.trim() && editForm.password.trim().length < 4) || editForm.username.trim().length < 3}
+                className="flex items-center justify-center gap-1.5 h-[38px] self-end text-[12px] font-semibold text-ink bg-allow hover:bg-allow/90 rounded px-3 disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 <Save size={14} /> Save changes
               </button>
             </div>
-            {editingSelf && <p className="mt-2.5 font-mono text-[10.5px] text-muted">Role and status are locked when editing your own account (lockout guard).</p>}
+            {editingSelf
+              ? <p className="mt-2.5 font-mono text-[10.5px] text-muted">Username, role and status are locked when editing your own account (lockout guard). You can still reset your password.</p>
+              : <p className="mt-2.5 font-mono text-[10.5px] text-muted">Renaming re-keys the user and signs out their existing sessions.</p>}
           </Panel>
         )}
 
