@@ -88,6 +88,12 @@ export default function Outcomes() {
             })}
           </div>
 
+          {total > PAGE_SIZE && (
+            <div className="border-y border-line/70 mb-2 -mt-1">
+              <Pagination page={outcomes.data?.page ?? page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
