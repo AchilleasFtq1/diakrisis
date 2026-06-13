@@ -336,6 +336,12 @@ dl.facts dd.audit, dl.facts dd code { font-family: var(--mono); font-size: .85re
     font-family: var(--mono); font-size: 1.2rem; color: var(--pine-deep);
 }
 .sca-hint { font-size: .85rem; color: var(--ink-soft); }
+.sca-input {
+    width: 9rem; text-align: center; letter-spacing: .5em; font-family: var(--mono); font-size: 1.4rem;
+    padding: .55rem .4rem; border: 1px solid #cfe1d8; border-radius: 8px; background: #fff; color: var(--pine-deep);
+}
+.sca-input:focus { outline: none; border-color: var(--pine); box-shadow: 0 0 0 3px rgba(13,92,67,.14); }
+.sca-box .btn { margin-top: .2rem; }
 
 /* ================================================================= APP SHELL (sidebar + main) */
 .app { display: flex; min-height: 100vh; align-items: stretch; }

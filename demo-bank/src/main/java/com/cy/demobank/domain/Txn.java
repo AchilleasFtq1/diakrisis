@@ -13,6 +13,8 @@ import java.time.format.DateTimeFormatter;
  */
 public record Txn(
         String id,
+        String eventId,
+        String statusOverride,
         String accountId,
         String ownerUser,
         String kind,
@@ -50,6 +52,9 @@ public record Txn(
      * mapped to ordinary bank language (the kind judges see in their own banking app).
      */
     public String status() {
+        if (statusOverride != null && !statusOverride.isBlank()) {
+            return statusOverride;   // the customer confirmed (Sent) or cancelled (Cancelled) a pending payment
+        }
         if (verdict == null) {
             return applied ? "Sent" : "Not sent";
         }
@@ -70,7 +75,7 @@ public record Txn(
             case "Pending" -> "pending";
             case "Paused" -> "paused";
             case "Awaiting approval" -> "approval";
-            case "Declined" -> "declined";
+            case "Declined", "Cancelled" -> "declined";
             default -> "pending";
         };
     }

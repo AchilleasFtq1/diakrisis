@@ -109,11 +109,13 @@ Then sign in fresh. First saved-payee payment = **ALLOW**.
 
 ## "What OTP do I put in the step-up box?" 😄
 
-The CONFIRM **SCA step-up box** is a **visual mock** — there is **no real OTP** wired, and the
-"Confirm & send" button is intentionally non-interactive (it shows the *affordance* — the friction
-a real bank would apply). So: any digits "work" visually; the button doesn't submit anything.
+It's now **fully wired** — **enter any 6 digits** (e.g. `123456`) and hit **Confirm & send**.
+The bank calls the decision-service lifecycle `POST /actions/{id}/confirm`, the held payment
+**executes**, the **balance moves**, and the statement flips to **Sent**. (There's no real phone to
+send a code to, so any 6 digits pass — the *friction* is the demonstration, not the code value.)
 
-The real machinery exists — the decision-service has `POST /actions/{id}/confirm` (and
-`/cancel`, `/approve`, `/reject`) that drive the lifecycle. They're just not wired to the demo
-box yet. **If you want it functional** (type a code → actually execute the held payment, balance
-moves), that's a small addition — ask and I'll wire the box to `/actions/{id}/confirm`.
+Likewise on a **Paused** (HOLD) payment, **Cancel payment** calls `POST /actions/{id}/cancel` for
+real — the payment is cancelled and the statement shows **Cancelled**.
+
+The full lifecycle (`confirm` / `cancel` / `approve` / `reject`) lives on the decision-service and
+is driven through the gateway.

@@ -37,6 +37,8 @@ CREATE TABLE deposits (
 -- activity feed (not just a one-off scenario result).
 CREATE TABLE transactions (
     id                TEXT PRIMARY KEY,
+    event_id          TEXT,                -- the Diakrisis decision event id (for lifecycle confirm/cancel)
+    status_override   TEXT,                -- set when the customer confirms/cancels a pending payment
     account_id        TEXT    NOT NULL,
     owner_user        TEXT    NOT NULL,
     kind              TEXT    NOT NULL,   -- TRANSFER / P2P / PAYEE_ADD / DEPOSIT_BREAK / PAYROLL

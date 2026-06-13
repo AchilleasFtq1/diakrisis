@@ -29,28 +29,39 @@
             <span class="status-pill lg" th:classappend="${result.statusClass()}" th:text="${result.statusLabel()}">Sent</span>
         </section>
 
-        <!-- Paused: name the scam to the customer + the only action is Cancel. -->
+        <!-- Paused: name the scam to the customer + the only action is Cancel (drives /actions/{id}/cancel). -->
         <section class="card alert" th:if="${result.showCancel()}">
             <p class="ns-warning" th:if="${result.scamWarning() != null}" th:text="${result.scamWarning()}">This looks like a safe-account scam…</p>
             <p class="muted">We won't send this payment unless you confirm with us. If you weren't expecting to
-                move this money, do nothing — you're protected.</p>
-            <a class="btn danger" th:href="@{'/accounts/' + ${account.id}}">Cancel payment</a>
+                move this money, cancel it — you're protected.</p>
+            <form method="post" th:action="@{/cancel-payment}">
+                <input type="hidden" name="eventId" th:value="${result.decision.eventId}"/>
+                <input type="hidden" name="account" th:value="${account.id}"/>
+                <button type="submit" class="btn danger">Cancel payment</button>
+            </form>
         </section>
 
-        <!-- Pending (CONFIRM): step-up authentication. -->
+        <!-- Pending (CONFIRM): step-up authentication — enter the code to actually execute the payment. -->
         <section class="card" th:if="${result.showSca()}">
             <h2>Verify it's you</h2>
-            <div class="sca-box">
+            <form class="sca-box" method="post" th:action="@{/confirm-payment}">
+                <input type="hidden" name="eventId" th:value="${result.decision.eventId}"/>
+                <input type="hidden" name="account" th:value="${account.id}"/>
+                <input type="hidden" name="amount" th:value="${receipt != null ? receipt.amount() : 0}"/>
+                <input type="hidden" name="to" th:value="${receipt != null ? receipt.to() : ''}"/>
+                <input type="hidden" name="iban" th:value="${receipt != null ? receipt.iban() : ''}"/>
+                <input type="hidden" name="bic" th:value="${receipt != null ? receipt.bic() : ''}"/>
+                <input type="hidden" name="reference" th:value="${receipt != null ? receipt.reference() : ''}"/>
+                <input type="hidden" name="rail" th:value="${receipt != null ? receipt.rail() : 'SEPA'}"/>
                 <span class="sca-label">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                     Enter your code
                 </span>
-                <div class="sca-code">
-                    <span>&#8226;</span><span>&#8226;</span><span>&#8226;</span><span>&#8226;</span><span>&#8226;</span><span>&#8226;</span>
-                </div>
-                <span class="sca-hint">We've texted a 6-digit code to your phone. Enter it to send this payment.</span>
-                <span class="btn static">Confirm &amp; send</span>
-            </div>
+                <input class="sca-input" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+                       placeholder="••••••" autocomplete="one-time-code" required/>
+                <span class="sca-hint">We've texted a 6-digit code to your phone. <em>(Demo: enter any 6 digits.)</em></span>
+                <button type="submit" class="btn">Confirm &amp; send</button>
+            </form>
         </section>
 
         <!-- Awaiting approval. -->

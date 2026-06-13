@@ -87,6 +87,33 @@ public class DecisionClient {
         }
     }
 
+    /**
+     * Drive a lifecycle transition on a decided action (e.g. {@code confirm} a PENDING_CONFIRM step-up,
+     * or {@code cancel} a HELD payment) — {@code POST /actions/{eventId}/{action}} with the customer's
+     * Bearer. Throws {@link DiakrisisClientException} on any non-2xx (e.g. 409 if the action is not in
+     * the right state).
+     */
+    public void act(String username, String eventId, String action) {
+        String token = accessToken(username);
+        String url = properties.decisionBaseUrl() + "/actions/" + eventId + "/" + action;
+        try {
+            restClient.post()
+                    .uri(url)
+                    .headers(headers -> headers.setBearerAuth(token))
+                    .retrieve()
+                    .toBodilessEntity();
+            LOG.info("Lifecycle {} for event {} by {}", action, eventId, username);
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 401) {
+                tokenCache.remove(username);
+            }
+            throw new DiakrisisClientException(
+                    action + " failed (" + ex.getStatusCode() + "): " + ex.getResponseBodyAsString(), ex);
+        } catch (RuntimeException ex) {
+            throw new DiakrisisClientException("action call to " + url + " failed: " + ex.getMessage(), ex);
+        }
+    }
+
     /** Return a valid cached access token for {@code username}, logging in on a miss or near-expiry. */
     private String accessToken(String username) {
         CachedToken cached = tokenCache.get(username);

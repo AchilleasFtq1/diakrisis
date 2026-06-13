@@ -22,6 +22,8 @@ public class TransactionRepository {
 
     private static final RowMapper<Txn> MAPPER = (rs, n) -> new Txn(
             rs.getString("id"),
+            rs.getString("event_id"),
+            rs.getString("status_override"),
             rs.getString("account_id"),
             rs.getString("owner_user"),
             rs.getString("kind"),
@@ -40,13 +42,21 @@ public class TransactionRepository {
     public void insert(Txn t) {
         jdbc.update("""
                 INSERT INTO transactions
-                  (id, account_id, owner_user, kind, counterparty_name, counterparty_ref, reference,
-                   amount_cents, rail, verdict, friction, reason_code, scam_pattern, applied, created_epoch_ms)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  (id, event_id, status_override, account_id, owner_user, kind, counterparty_name,
+                   counterparty_ref, reference, amount_cents, rail, verdict, friction, reason_code,
+                   scam_pattern, applied, created_epoch_ms)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
-                t.id(), t.accountId(), t.ownerUser(), t.kind(), t.counterpartyName(), t.counterpartyRef(),
-                t.reference(), t.amountCents(), t.rail(), t.verdict(), t.friction(), t.reasonCode(),
-                t.scamPattern(), t.applied() ? 1 : 0, t.createdEpochMs());
+                t.id(), t.eventId(), t.statusOverride(), t.accountId(), t.ownerUser(), t.kind(),
+                t.counterpartyName(), t.counterpartyRef(), t.reference(), t.amountCents(), t.rail(),
+                t.verdict(), t.friction(), t.reasonCode(), t.scamPattern(), t.applied() ? 1 : 0,
+                t.createdEpochMs());
+    }
+
+    /** Set the customer-confirmed/cancelled status on a pending transaction (by its decision event id). */
+    public void markStatus(String eventId, String status) {
+        jdbc.update("UPDATE transactions SET status_override = ?, applied = ? WHERE event_id = ?",
+                status, "Sent".equals(status) ? 1 : 0, eventId);
     }
 
     /** Statement for one account, newest first. */

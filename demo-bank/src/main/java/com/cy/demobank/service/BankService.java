@@ -110,6 +110,32 @@ public class BankService {
         return transactionRepository.recentByOwner(ownerUser, limit);
     }
 
+    // ------------------------------------------------------------------------------------------------
+    // Lifecycle — the customer confirms (step-up) or cancels a pending payment.
+    // ------------------------------------------------------------------------------------------------
+
+    /**
+     * Complete a CONFIRM step-up: drive the decision-service lifecycle ({@code /actions/{id}/confirm}),
+     * debit the account, and mark the pending transaction as Sent. Throws if the action can't be
+     * confirmed (e.g. it was already resolved).
+     */
+    public ActionResult confirmPayment(String accountId, String eventId, BigDecimal amountEur) {
+        Account account = requireAccount(accountId);
+        decisionClient.act(account.ownerUser(), eventId, "confirm");
+        if (amountEur != null && amountEur.signum() > 0) {
+            accountRepository.debitIfSufficient(account.id(), amountEur.movePointRight(2).longValueExact());
+        }
+        transactionRepository.markStatus(eventId, "Sent");
+        return new ActionResult(null, true, "Payment confirmed and sent.", "TRANSFER");
+    }
+
+    /** Cancel a held/pending payment: drive {@code /actions/{id}/cancel} and mark it Cancelled. */
+    public void cancelPayment(String accountId, String eventId) {
+        Account account = requireAccount(accountId);
+        decisionClient.act(account.ownerUser(), eventId, "cancel");
+        transactionRepository.markStatus(eventId, "Cancelled");
+    }
+
     /** Persist one action + its live verdict to the statement/activity ledger. */
     private void record(Account account, String kind, String cpName, String cpRef,
                         BigDecimal amountEur, String rail, String reference, ActionResult result) {
@@ -117,7 +143,9 @@ public class BankService {
         String scam = result.typologies().isEmpty() ? null : String.join(", ", result.typologies());
         long cents = amountEur == null ? 0L : amountEur.movePointRight(2).longValueExact();
         transactionRepository.insert(new Txn(
-                UUID.randomUUID().toString(), account.id(), account.ownerUser(), kind, cpName, cpRef,
+                UUID.randomUUID().toString(),
+                d == null ? null : d.eventId(), null,
+                account.id(), account.ownerUser(), kind, cpName, cpRef,
                 blankToNull(reference), cents, rail, result.verdict(),
                 d == null ? null : d.friction(),
                 d == null ? null : d.reasonCode(),

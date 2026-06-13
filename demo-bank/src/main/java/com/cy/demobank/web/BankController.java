@@ -185,6 +185,45 @@ public class BankController {
                 new Receipt(resolvedName, alias, null, amount, null, "SEPA Instant (P2P)"));
     }
 
+    // ================================================================= lifecycle (step-up / cancel)
+    /** Complete the SCA step-up on a CONFIRM: confirm the held action and execute the payment. */
+    @PostMapping("/confirm-payment")
+    public String confirmPayment(@RequestParam("eventId") @NotBlank String eventId,
+                                 @RequestParam("account") @NotBlank String account,
+                                 @RequestParam("amount") @NotNull @Positive BigDecimal amount,
+                                 @RequestParam(value = "to", required = false) String to,
+                                 @RequestParam(value = "iban", required = false) String iban,
+                                 @RequestParam(value = "bic", required = false) String bic,
+                                 @RequestParam(value = "reference", required = false) String reference,
+                                 @RequestParam(value = "rail", required = false) String rail,
+                                 @RequestParam(value = "code", required = false) String code,
+                                 HttpSession session, Model model) {
+        String owner = owner(session);
+        if (owner == null) {
+            return "redirect:/";
+        }
+        if (code == null || !code.matches("\\d{6}")) {
+            throw new IllegalArgumentException("Enter the 6-digit code we sent to your phone.");
+        }
+        ActionResult result = bankService.confirmPayment(account, eventId, amount);
+        Receipt receipt = new Receipt(blankToNull(to), blankToNull(iban), blankToNull(bic),
+                amount, blankToNull(reference), rail == null ? "SEPA" : rail);
+        return verdict(model, owner, account, result, receipt);
+    }
+
+    /** Cancel a held payment, then return to the account statement (it now shows "Cancelled"). */
+    @PostMapping("/cancel-payment")
+    public String cancelPayment(@RequestParam("eventId") @NotBlank String eventId,
+                                @RequestParam("account") @NotBlank String account,
+                                HttpSession session) {
+        String owner = owner(session);
+        if (owner == null) {
+            return "redirect:/";
+        }
+        bankService.cancelPayment(account, eventId);
+        return "redirect:/accounts/" + account;
+    }
+
     // ================================================================= payees
     @GetMapping("/payees")
     public String payees(@RequestParam(value = "account", required = false) String account,
