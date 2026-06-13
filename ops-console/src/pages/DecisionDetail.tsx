@@ -154,7 +154,7 @@ export default function DecisionDetail() {
               <span className="text-hold">❄</span>
               <span className="text-[12px] text-fg">
                 <span className="font-mono text-hold font-semibold">{euro(fundsFreed)}</span> freed in the last 72h —
-                the posture the engine remembers when scoring the drain.
+                the posture the engine remembers when scoring outbound payments from this account.
               </span>
             </div>
           )}

@@ -40,3 +40,4 @@ Thumbs.db
 
 # ── Local agent/workflow scratch (never committed) ──
 .diakrisis-*.workflow.js
+.playwright-mcp/

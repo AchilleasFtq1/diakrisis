@@ -74,7 +74,7 @@ export default function AccountPosture() {
             <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-hold/10 border border-hold/30">
               <Snowflake size={15} className="text-hold" />
               <span className="text-[12.5px] text-fg">
-                Active funds-freed window — a drain from this account will trip <span className="font-mono text-block">liquidation_kill_chain</span>.
+                Active funds-freed window — the engine factors this posture into any outbound payment it scores from this account.
               </span>
             </div>
           )}
