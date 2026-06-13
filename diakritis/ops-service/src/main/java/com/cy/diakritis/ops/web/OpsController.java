@@ -88,11 +88,24 @@ public class OpsController {
     }
 
     @Operation(summary = "Account ops view",
-            description = "Risk posture (funds-freed window), device/IP/geo observations, and decision "
-                    + "history for one account — the kill-chain memory. OPS or APPROVER role.")
+            description = "Risk posture (funds-freed window), device/IP/geo observations, and the recent "
+                    + "decision window for one account — the kill-chain memory. OPS or APPROVER role.")
     @GetMapping("/accounts/{id}")
     public AccountView account(@PathVariable("id") String accountId, HttpServletRequest request) {
         currentUser.requireRole(request, Role.OPS, Role.APPROVER);
         return opsService.accountView(accountId);
+    }
+
+    @Operation(summary = "Account decision history",
+            description = "Server-paged full decision history for one account (newest first). "
+                    + "OPS or APPROVER role.")
+    @GetMapping("/accounts/{id}/history")
+    public Page<FeedEntry> accountHistory(
+            @PathVariable("id") String accountId,
+            @RequestParam(name = "page", defaultValue = "1") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size,
+            HttpServletRequest request) {
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER);
+        return opsService.accountHistory(accountId, page, size);
     }
 }

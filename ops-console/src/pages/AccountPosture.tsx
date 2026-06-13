@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Smartphone, Globe, Network, Snowflake } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHead } from '../components/Layout';
@@ -55,14 +55,20 @@ export default function AccountPosture() {
     enabled: !!id,
     refetchInterval: 6000,
   });
+  // Server-paged full history (the account view itself only carries the recent timeline window).
+  const historyQuery = useQuery({
+    queryKey: ['account-history', id, page],
+    queryFn: () => api.accountHistory(id!, { page, size: HISTORY_PAGE_SIZE }),
+    enabled: !!id,
+    refetchInterval: 6000,
+    placeholderData: keepPreviousData,
+  });
   if (!id) return <AccountPicker />;
 
   const a = account.data;
   const p = a?.posture;
-  const history = a?.history ?? [];
-  const pageCount = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
-  const historyPage = history.slice((safePage - 1) * HISTORY_PAGE_SIZE, safePage * HISTORY_PAGE_SIZE);
+  const historyRows = historyQuery.data?.items ?? [];
+  const historyTotal = historyQuery.data?.total ?? 0;
 
   return (
     <div>
@@ -116,11 +122,11 @@ export default function AccountPosture() {
 
           <Panel
             title="Decision history"
-            right={history.length > 0 ? <span className="font-mono text-[10px] text-muted">{history.length} events</span> : null}
+            right={historyTotal > 0 ? <span className="font-mono text-[10px] text-muted">{historyTotal} events</span> : null}
           >
             <table className="w-full text-[12px]">
               <tbody>
-                {historyPage.map((e) => (
+                {historyRows.map((e) => (
                   <tr key={e.event_id} className="border-b border-line/50 last:border-0">
                     <td className="py-2 pr-2 text-muted whitespace-nowrap">{clock(e.created_at)}</td>
                     <td className="py-2 pr-2 text-fg-2">{e.event_type ?? '—'}</td>
@@ -129,12 +135,12 @@ export default function AccountPosture() {
                     <td className="py-2"><ScoreMeter score={e.score} /></td>
                   </tr>
                 ))}
-                {history.length === 0 && (
+                {historyTotal === 0 && (
                   <tr><td className="py-6 text-center text-muted" colSpan={5}>No history.</td></tr>
                 )}
               </tbody>
             </table>
-            <Pagination page={safePage} pageSize={HISTORY_PAGE_SIZE} total={history.length} onPage={setPage} />
+            <Pagination page={historyQuery.data?.page ?? page} pageSize={HISTORY_PAGE_SIZE} total={historyTotal} onPage={setPage} />
           </Panel>
         </div>
       </div>

@@ -99,6 +99,10 @@ export const api = {
     ),
   decision: (id: string) => request<DecisionDetail>(`/ops/decisions/${encodeURIComponent(id)}`),
   account: (id: string) => request<AccountView>(`/ops/accounts/${encodeURIComponent(id)}`),
+  accountHistory: (id: string, params: { page?: number; size?: number } = {}) =>
+    request<Page<FeedEntry>>(
+      `/ops/accounts/${encodeURIComponent(id)}/history${queryString({ page: params.page, size: params.size })}`,
+    ),
   approve: (id: string) => request<void>(`/actions/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
   reject: (id: string) => request<void>(`/actions/${encodeURIComponent(id)}/reject`, { method: 'POST' }),
 };

@@ -45,6 +45,9 @@ public class OpsService {
     private static final Logger LOG = LoggerFactory.getLogger(OpsService.class);
 
     private static final int FEED_LIMIT = 100;
+    /** Recent decisions surfaced in the account-view timeline (the kill-chain hero). The full, paged
+     *  history is served separately by {@link #accountHistory}. */
+    private static final int ACCOUNT_TIMELINE_LIMIT = 12;
     /** Pulls the event type out of the audit explanation ("decision=… type=TRANSFER typologies=…"). */
     private static final Pattern EVENT_TYPE = Pattern.compile("type=([A-Z_]+)");
 
@@ -331,6 +334,22 @@ public class OpsService {
         observations.sort(Comparator.comparing(
                 (AccountView.Observation o) -> o.firstSeenAt() == null ? Instant.EPOCH : o.firstSeenAt()));
 
+        // Only the recent window goes in the account view (drives the timeline hero); the full history
+        // is paged via accountHistory so a busy account doesn't ship its entire ledger in one payload.
+        List<FeedEntry> all = accountHistoryAll(accountId);
+        List<FeedEntry> timeline = all.size() > ACCOUNT_TIMELINE_LIMIT
+                ? new ArrayList<>(all.subList(0, ACCOUNT_TIMELINE_LIMIT))
+                : all;
+
+        return new AccountView(accountId, posture, observations, timeline);
+    }
+
+    /** Server-paged full decision history for one account (newest first), backing the history table. */
+    public Page<FeedEntry> accountHistory(String accountId, int page, int size) {
+        return Page.of(accountHistoryAll(accountId), page, size);
+    }
+
+    private List<FeedEntry> accountHistoryAll(String accountId) {
         List<FeedEntry> history = new ArrayList<>();
         decisionTable.scan().items().forEach(item -> {
             if (accountId.equals(item.getAccountId())) {
@@ -339,8 +358,7 @@ public class OpsService {
         });
         history.sort(Comparator.comparing(
                 (FeedEntry e) -> e.createdAt() == null ? Instant.EPOCH : e.createdAt()).reversed());
-
-        return new AccountView(accountId, posture, observations, history);
+        return history;
     }
 
     // ------------------------------------------------------------------------------------------------
