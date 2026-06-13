@@ -32,3 +32,11 @@ diakritis/data/raw/
 # ── OS noise ──
 .DS_Store
 Thumbs.db
+
+# ── Runtime artifacts (demo-bank SQLite store) ──
+*.db
+*.db-journal
+*.sqlite
+
+# ── Local agent/workflow scratch (never committed) ──
+.diakrisis-*.workflow.js
