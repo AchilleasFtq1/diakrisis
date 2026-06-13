@@ -56,7 +56,7 @@ public final class M2Scorer {
         boolean ok = false;
         try {
             loadedScaler = M2Scaler.load(modelsDir);
-            loadedIndex = loadExemplars(modelsDir.resolve("m2").resolve(EXEMPLARS_FILE), loadedScaler);
+            loadedIndex = loadKdTreeExemplars(modelsDir.resolve("m2").resolve(EXEMPLARS_FILE), loadedScaler);
             ok = loadedIndex.isAvailable();
             if (ok) {
                 log.info("M2 exemplar index loaded from {} ({} dims)", modelsDir, loadedScaler.length());
@@ -103,11 +103,12 @@ public final class M2Scorer {
     }
 
     /**
-     * Load and transform the exemplar table. Each data row is {@code label,f0..f15}; the features are
-     * standardized + L2-normalized with {@code scaler}. A missing file or zero usable rows yields the
-     * empty index.
+     * Load and transform the in-JVM KDTree exemplar table (the §9.2 fallback backend). Each data row is
+     * {@code label,f0..f15}; the features are standardized + L2-normalized with {@code scaler}. A
+     * missing file or zero usable rows yields the empty index. Exposed so the M2 backend factory can
+     * build the KDTree fallback with the very same loader the scorer uses.
      */
-    private static ExemplarIndex loadExemplars(Path path, M2Scaler scaler) throws IOException {
+    public static ExemplarIndex loadKdTreeExemplars(Path path, M2Scaler scaler) throws IOException {
         if (!Files.exists(path)) {
             return ExemplarIndex.empty();
         }

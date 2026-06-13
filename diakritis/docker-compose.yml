@@ -55,6 +55,55 @@ services:
     restart: "no"
 
   # ------------------------------------------------------------------------------------------------
+  # Ollama — local Gemma host for the §9.4 AI co-judge. Behind the 'llm' profile so the default
+  # `docker compose up` stays lean; bring it up with `docker compose --profile llm up`. The model is
+  # pulled into the named volume once (multi-GB) and then resident across restarts. The decision
+  # service points at it via DIAKRISIS_COJUDGE_OLLAMA_URL; when this service is absent the co-judge
+  # degrades to UNAVAILABLE and the engine is unaffected.
+  # ------------------------------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: diakrisis-ollama
+    profiles: ["llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      # `ollama` serves a JSON list on /api/tags once the daemon is up; a 200 = ready.
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ------------------------------------------------------------------------------------------------
+  # Qdrant — vector store for the §9.2 M2 ExemplarIndex (cosine k-NN over the fraud_exemplars
+  # collection). Behind the 'm2' profile so the default `docker compose up` stays lean and serves M2
+  # from the in-JVM Smile KDTree fallback. Bring the live backend up with `docker compose --profile
+  # m2 up`; the collection is loaded by the M2 exemplar loader (etl M2ExemplarLoader). When this
+  # service is absent the decision-service M2 backend degrades to KDTREE at boot — the engine is
+  # unaffected. REST :6333, gRPC :6334 (the decision-service talks gRPC).
+  # ------------------------------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: diakrisis-qdrant
+    profiles: ["m2"]
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    healthcheck:
+      # Qdrant serves a JSON readiness payload on / once the HTTP API is up; a returned response (any
+      # 2xx) proves the port is serving. `curl -s` (no -f) exits 0 on any HTTP response.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  # ------------------------------------------------------------------------------------------------
   # Decision service (:8081) — scoring + lifecycle. Waits for dynamo healthy AND the seed to finish.
   # ------------------------------------------------------------------------------------------------
   decision-service:
@@ -73,6 +122,16 @@ services:
       DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
       DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
       DIAKRISIS_MODELS_DIR: "/models"
+      # §9.4 AI co-judge: point at the in-network Ollama service (only present under the 'llm'
+      # profile). When that service is absent the URL is unreachable and the co-judge degrades to
+      # UNAVAILABLE at boot — the engine is unaffected, so the default `up` needs no model daemon.
+      DIAKRISIS_COJUDGE_OLLAMA_URL: "http://ollama:11434"
+      # §9.2 M2 backend: AUTO prefers the in-network Qdrant (only present under the 'm2' profile) and
+      # degrades to the in-JVM KDTree fallback automatically when it is absent — so the default `up`
+      # needs no vector store, while `docker compose --profile m2 up` serves M2 live from Qdrant.
+      DIAKRISIS_M2_BACKEND: "auto"
+      DIAKRISIS_M2_QDRANT_HOST: "qdrant"
+      DIAKRISIS_M2_QDRANT_PORT: "6334"
     # Pre-trained models live OUTSIDE the build context; bind-mount them read-only.
     volumes:
       - /Users/achilleaseftychiou/Documents/Projects/diakrisis/diakrisis-models:/models:ro
@@ -111,3 +170,10 @@ services:
       timeout: 5s
       retries: 15
       start_period: 20s
+
+# Named volume holding the pulled Gemma weights for the llm-profile Ollama service, so the
+# multi-GB pull survives container restarts.
+volumes:
+  ollama-models:
+  # Persists the Qdrant fraud_exemplars collection across container restarts (m2 profile).
+  qdrant-storage:

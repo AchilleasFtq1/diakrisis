@@ -49,6 +49,7 @@ import com.cy.diakritis.engine.signal.SignalContext;
 import com.cy.diakritis.engine.signal.V1BurstVelocity;
 import com.cy.diakritis.engine.signal.V2RisingAmounts;
 import com.cy.diakritis.engine.signal.X1CrossAccountReputation;
+import com.cy.diakritis.engine.store.AccountStatsView;
 import com.cy.diakritis.engine.store.FeatureStore;
 import com.cy.diakritis.engine.store.GeoResolver;
 import com.cy.diakritis.engine.store.ObservationsView;
@@ -97,6 +98,17 @@ public final class ScoreEngine {
 
     public static final String SCA_TRA_BASIS =
             "PSD2 RTS Art.18 TRA (low value, low fraud-rate)";
+
+    /**
+     * §17 vulnerability-aware friction: the number of bands a flagged-vulnerable account's ALLOW or
+     * CONFIRM outcome is escalated by. Exactly one band, capped at HOLD — mirroring the §8.3
+     * AI-escalation asymmetry (the system can only make a vulnerable customer's outcome stricter,
+     * never softer, and never past HOLD into a hard BLOCK).
+     */
+    public static final int VULNERABILITY_BAND_ESCALATION = 1;
+
+    /** Basis recorded on the decision when the §17 vulnerability escalation has been applied. */
+    public static final String VULNERABILITY_ESCALATION_BASIS = "vulnerability_escalation";
 
     private final M1Scorer m1Scorer;
     private final M2Scorer m2Scorer;
@@ -204,6 +216,18 @@ public final class ScoreEngine {
         // 6. Typology override.
         band = applyTypologyOverride(band, typologies, raw);
 
+        // 6b. §17 vulnerability-aware friction: a flagged-vulnerable account's ALLOW/CONFIRM outcome
+        // is escalated exactly one band, capped at HOLD (mirroring the §8.3 AI-escalation asymmetry —
+        // stricter-only, never softer, never into a hard BLOCK). Applied before the non-monetary cap
+        // so a non-monetary action stays capped at CONFIRM (CI-9 holds for vulnerable accounts too).
+        AccountStatsView vulnerabilityStats = store.accountStats(event.accountId());
+        boolean vulnerable = vulnerabilityStats != null && vulnerabilityStats.isVulnerable();
+        Band preVulnerabilityBand = band;
+        if (vulnerable) {
+            band = escalateForVulnerability(band);
+        }
+        boolean vulnerabilityEscalated = vulnerable && band != preVulnerabilityBand;
+
         // 7. Non-monetary cap.
         band = Bands.capNonMonetary(band, type);
 
@@ -237,7 +261,21 @@ public final class ScoreEngine {
         String reasonCode = reasonCode(decision, typologies, scored.values);
         Explanation explanation = explanationFor(decision, type, typologies, counterparty);
 
-        return new ScoreResult(engineVerdict, reasonCode, explanation, List.of());
+        return new ScoreResult(engineVerdict, reasonCode, explanation, List.of(), vulnerabilityEscalated);
+    }
+
+    /**
+     * Escalate a band by {@link #VULNERABILITY_BAND_ESCALATION} for a flagged-vulnerable account,
+     * capped at HOLD: ALLOW→CONFIRM, CONFIRM→HOLD. HOLD and BLOCK are already at or beyond the cap
+     * and are returned unchanged — the friction is one extra step of protection, never a softening
+     * and never a hard BLOCK the customer cannot clear.
+     */
+    private static Band escalateForVulnerability(Band band) {
+        return switch (band) {
+            case ALLOW -> Band.CONFIRM;
+            case CONFIRM -> Band.HOLD;
+            case HOLD, BLOCK -> band;
+        };
     }
 
     // --- mass-payment scoring ----------------------------------------------------------------
@@ -339,7 +377,10 @@ public final class ScoreEngine {
         String reasonCode = reasonCode(batchDecision, dedupTypologies, Map.of());
         Explanation explanation = explanationFor(batchDecision, EventType.MASS_PAYMENT, dedupTypologies, null);
 
-        return new ScoreResult(engineVerdict, reasonCode, explanation, itemResults);
+        // The §17 single-action friction escalation does not apply to a batch: a business mass-payment
+        // already routes to four-eyes REQUIRE_APPROVAL, and the disclosed vulnerable demo account is
+        // retail. The flag is therefore not escalated on the batch path.
+        return new ScoreResult(engineVerdict, reasonCode, explanation, itemResults, false);
     }
 
     /**

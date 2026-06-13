@@ -19,9 +19,19 @@ public record ScoreResult(
         EngineVerdict engineVerdict,
         String reasonCode,
         Explanation explanation,
-        List<ItemResult> items
+        List<ItemResult> items,
+        boolean vulnerabilityEscalated
 ) {
     public ScoreResult {
         items = items == null ? List.of() : List.copyOf(items);
+    }
+
+    /**
+     * Backward-compatible constructor for results that carry no §17 vulnerability escalation
+     * (defaults {@code vulnerabilityEscalated} to {@code false}).
+     */
+    public ScoreResult(EngineVerdict engineVerdict, String reasonCode, Explanation explanation,
+                       List<ItemResult> items) {
+        this(engineVerdict, reasonCode, explanation, items, false);
     }
 }

@@ -25,6 +25,16 @@
         <spring-boot.version>4.1.0</spring-boot.version>
         <aws-sdk.version>2.31.78</aws-sdk.version>
         <smile.version>3.1.1</smile.version>
+        <qdrant-client.version>1.14.1</qdrant-client.version>
+        <!--
+          The Qdrant client declares grpc/protobuf/guava as RUNTIME scope, but the engine compiles
+          directly against their types (ListenableFuture, ManagedChannel, the generated message
+          base classes). These versions track exactly what io.qdrant:client:1.14.1 resolves so the
+          compile classpath matches the runtime classpath bit-for-bit.
+        -->
+        <grpc.version>1.80.0</grpc.version>
+        <protobuf.version>4.34.2</protobuf.version>
+        <guava.version>33.5.0-android</guava.version>
     </properties>
 
     <dependencyManagement>
@@ -81,6 +91,39 @@
                     <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+
+        <!--
+          Qdrant Java client (gRPC :6334) — the §9.2 production ExemplarIndex backend. It bundles
+          grpc-netty-shaded + protobuf so the engine talks to a running Qdrant with no extra wiring.
+          The in-JVM Smile KDTree (above) stays the configured FALLBACK; the factory picks the
+          Qdrant path when reachable and degrades to the KDTree otherwise (diakrisis.m2.backend).
+        -->
+        <dependency>
+            <groupId>io.qdrant</groupId>
+            <artifactId>client</artifactId>
+            <version>${qdrant-client.version}</version>
+        </dependency>
+
+        <!--
+          Promote the grpc/protobuf/guava types the engine references at COMPILE time (the Qdrant
+          client only pulls them at runtime scope). grpc-netty-shaded itself stays runtime-only —
+          the engine never names a Netty type, only the gRPC + protobuf + guava-future APIs.
+        -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-api</artifactId>
+            <version>${grpc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>${guava.version}</version>
         </dependency>
 
         <dependency>
