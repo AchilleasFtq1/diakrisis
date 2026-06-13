@@ -1,0 +1,65 @@
+@import 'tailwindcss';
+
+/* Diakrisis Fraud-Ops Console — dark "control-room" theme, tokens taken verbatim from the
+   Claude Design file (Diakrisis Fraud-Ops Console.dc.html). */
+@theme {
+  --color-ink: #0c1015; /* screen background */
+  --color-panel: #141a21; /* cards / panels */
+  --color-panel-2: #1a222c; /* nested fills (meters, inputs) */
+  --color-line: #232b36; /* hairline borders */
+  --color-line-2: #2b3440; /* input borders */
+  --color-fg: #e6edf3; /* primary text */
+  --color-fg-2: #93a1b0; /* labels */
+  --color-muted: #5c6773; /* tertiary text */
+  --color-muted-2: #7a7e84;
+
+  --color-cyan: #4cc2d6; /* brand accent */
+  --color-cyan-2: #6fd0e0;
+
+  --color-allow: #3fb950; /* outcome scale */
+  --color-confirm: #d29922;
+  --color-approval: #a371f7;
+  --color-hold: #db6d28;
+  --color-block: #f85149;
+
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The risk severity gradient (number + meter), reused wherever a score appears. */
+.severity-fill {
+  background: linear-gradient(90deg, #3fb950 0%, #d29922 45%, #db6d28 72%, #f85149 100%);
+}
+
+/* faint control-room grid for empty backgrounds */
+.grid-bg {
+  background-image: linear-gradient(#ffffff05 1px, transparent 1px),
+    linear-gradient(90deg, #ffffff05 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #232b36;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
