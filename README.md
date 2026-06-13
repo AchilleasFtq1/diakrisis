@@ -9,11 +9,14 @@
 
 ---
 
-Diakrisis scores a customer action from explainable signals — counterparty intelligence, amount
-behaviour, velocity, geo/device context, and **kill-chain posture** (what this account did in the
-last 72h) — and returns one of **five graduated, pattern-specific outcomes**. It does not try to
-out-detect the incumbents; it owns the layer they leave to the bank: the **customer-facing decision
-itself**.
+Diakrisis is a **hybrid decision system** — a deterministic, explainable engine **fused with machine
+learning and a local LLM co-judge**. It scores a customer action from explainable signals
+(counterparty intelligence, amount behaviour, velocity, geo/device context, and **kill-chain posture**
+— what this account did in the last 72h), blends in **two ML signals** (a calibrated gradient-boosted
+fraud model and vector similarity to known fraud exemplars), runs an **AI co-judge** (a local Gemma
+LLM) in parallel as an independent second opinion, and returns one of **five graduated,
+pattern-specific outcomes**. It does not try to out-detect the incumbents; it owns the layer they
+leave to the bank: the **customer-facing decision itself**.
 
 > Authorized-push-payment (APP) scams defeat binary fraud checks structurally: the genuine customer,
 > on genuine credentials, authorizes every step — including the *preparatory* ones (break the deposit,
@@ -37,6 +40,28 @@ on the verdict, so the bank doesn't re-derive it). The rungs defeat **different*
 No single signal decides anything — the verdict is a weighted **combination** (Σ weight·value,
 clipped 0–100) plus executable **typologies**. A new geo on a familiar device is nothing; a new
 device **and** new payee **and** drain **and** new geo together is a block.
+
+## Hybrid by design — deterministic engine + ML + AI
+
+Three layers, deliberately ordered so the system stays explainable and resilient:
+
+- 🧮 **Deterministic engine** *(authoritative)* — **27 explainable signals** across 11 families + **7
+  executable typologies** → a weighted score and one of five outcomes. Every decision is fully
+  auditable; the golden-path tests pin it to exact verdicts.
+- 🤖 **Machine learning** *(additive signals)* — **M1**: a [Smile](https://haifengl.github.io/)
+  GradientTreeBoost fraud model trained on IEEE-CIS, isotonic-calibrated so its output is a real
+  probability; **M2**: cosine **k-NN over a Qdrant** store of fraud exemplars (*"this most resembles
+  14 confirmed fraud cases"* — retrieval-grounded explainability, with an in-JVM KDTree fallback).
+  Both are **capped and additive**: if the ML weights go to zero the deterministic engine still works
+  (resilience, not simplicity).
+- 🧠 **AI co-judge** *(advisory)* — a **local Gemma 4 LLM** runs **in parallel** as an independent
+  second scorer (data never leaves the box). It can add **exactly one capped band of friction**
+  (PASS→CONFIRM, CONFIRM→HOLD) — **never block, never relax** — and its disagreement flags edge cases
+  for a human. It never moves the authoritative verdict; the engine is champion of record.
+
+The split is the point: **ML/AI sharpen the engine, they don't replace it.** Both ML signals or the
+whole co-judge can fail (timeout, OOM, container down) and the engine returns a correct, explainable
+decision unchanged.
 
 ## System architecture
 
