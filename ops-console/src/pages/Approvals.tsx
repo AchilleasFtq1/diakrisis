@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Lock, X } from 'lucide-react';
+import { ArrowRight, Check, Lock, X } from 'lucide-react';
 import { api } from '../lib/api';
 import { loadSession } from '../lib/auth';
 import { PageHead } from '../components/Layout';
@@ -12,6 +13,7 @@ const PAGE_SIZE = 8;
 
 export default function Approvals() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const me = loadSession()?.sub;
 
   const [query, setQuery] = useState('');
@@ -77,11 +79,22 @@ export default function Approvals() {
             </div>
           }
         >
+          {total > PAGE_SIZE && (
+            <div className="border-b border-line/70 mb-3 -mt-1">
+              <Pagination page={approvals.data?.page ?? page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />
+            </div>
+          )}
           <div className="space-y-3">
             {pageRows.map((a) => {
               const ownAction = me && me === a.initiator_user_id; // four-eyes: can't approve your own
+              const remaining = countdown(a.hold_expires_at);
+              const lapsed = remaining === 'expired' || a.hold_expires_at == null;
               return (
-                <div key={a.event_id} className="border border-line rounded-lg p-4 bg-panel-2">
+                <div
+                  key={a.event_id}
+                  onClick={() => navigate(`/decisions/${encodeURIComponent(a.event_id)}`)}
+                  className="group border border-line rounded-lg p-4 bg-panel-2 cursor-pointer hover:border-cyan/50 hover:bg-panel-2/60 transition-colors"
+                >
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="font-mono text-[11px] text-approval bg-approval/12 border border-approval/30 rounded px-2 py-0.5">
                       {a.state}
@@ -90,11 +103,18 @@ export default function Approvals() {
                     <span className="text-[12px] text-fg-2">
                       initiated by <Mono className="text-fg">{a.initiator_user_id ?? '—'}</Mono>
                     </span>
-                    <span className="font-mono text-[11px] text-hold ml-auto">
-                      expires in {countdown(a.hold_expires_at)}
+                    {lapsed ? (
+                      <span className="font-mono text-[11px] text-muted ml-auto">hold lapsed</span>
+                    ) : (
+                      <span className="font-mono text-[11px] text-hold ml-auto">expires in {remaining}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <Mono className="text-[10.5px] text-muted">{a.event_id}</Mono>
+                    <span className="flex items-center gap-1 font-mono text-[10px] text-cyan opacity-0 group-hover:opacity-100 transition-opacity">
+                      view decision <ArrowRight size={11} />
                     </span>
                   </div>
-                  <Mono className="text-[10.5px] text-muted block mt-1.5">{a.event_id}</Mono>
                   {a.batch_held_item_ids && a.batch_held_item_ids.length > 0 && (
                     <div className="mt-2 text-[11px] text-fg-2">
                       held lines:{' '}
@@ -104,7 +124,7 @@ export default function Approvals() {
                     </div>
                   )}
 
-                  <div className="flex items-center gap-2 mt-3">
+                  <div className="flex items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
                     {ownAction ? (
                       <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted bg-ink border border-line rounded px-3 py-1.5">
                         <Lock size={12} /> can't approve your own action (four-eyes)

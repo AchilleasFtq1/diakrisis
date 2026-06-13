@@ -147,6 +147,11 @@ export default function Overview() {
             )}
           </div>
 
+          {/* top pager — visible without scrolling the table */}
+          <div className="border-y border-line/70 -mt-1 mb-1">
+            <Pagination page={feed.data?.page ?? page} pageSize={PAGE_SIZE} total={matchTotal} onPage={setPage} />
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>

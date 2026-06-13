@@ -74,7 +74,23 @@ export function SignalBar({ signal, max }: { signal: Signal; max: number }) {
   );
 }
 
-/** Client-side pager over an already-fetched list. Renders nothing when a single page suffices. */
+/** The page numbers to show, with `'…'` gaps, keeping the current page centred in a window of 7. */
+function pageWindow(page: number, pageCount: number): (number | '…')[] {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+  const out: (number | '…')[] = [1];
+  const start = Math.max(2, page - 1);
+  const end = Math.min(pageCount - 1, page + 1);
+  if (start > 2) out.push('…');
+  for (let p = start; p <= end; p++) out.push(p);
+  if (end < pageCount - 1) out.push('…');
+  out.push(pageCount);
+  return out;
+}
+
+/**
+ * Pager over a server-paged list. Numbered buttons (current page highlighted) plus prev/next, so the
+ * paging controls read as paging at a glance. Renders nothing when a single page suffices.
+ */
 export function Pagination({
   page,
   pageSize,
@@ -90,17 +106,34 @@ export function Pagination({
   if (pageCount <= 1) return null;
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(total, page * pageSize);
-  const btn = 'flex items-center gap-1 px-2.5 py-1 rounded border border-line bg-panel-2 text-fg-2 hover:text-fg hover:border-line-2 disabled:opacity-40 disabled:cursor-not-allowed';
+  const arrow = 'flex items-center justify-center w-[26px] h-[26px] rounded border border-line bg-panel-2 text-fg-2 hover:text-fg hover:border-cyan disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-line';
   return (
-    <div className="flex items-center justify-between mt-3.5 font-mono text-[11px] text-muted">
-      <span>{from}–{to} of {total}</span>
-      <div className="flex items-center gap-2">
-        <button className={btn} disabled={page <= 1} onClick={() => onPage(page - 1)}>
-          <ChevronLeft size={13} /> Prev
+    <div className="flex items-center justify-between gap-3 py-2.5 flex-wrap">
+      <span className="font-mono text-[11px] text-muted">{from}–{to} of {total}</span>
+      <div className="flex items-center gap-1">
+        <button className={arrow} disabled={page <= 1} onClick={() => onPage(page - 1)} title="Previous">
+          <ChevronLeft size={14} />
         </button>
-        <span className="text-fg-2">page {page} / {pageCount}</span>
-        <button className={btn} disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
-          Next <ChevronRight size={13} />
+        {pageWindow(page, pageCount).map((p, i) =>
+          p === '…' ? (
+            <span key={`gap-${i}`} className="font-mono text-[11px] text-muted px-1 select-none">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onPage(p)}
+              aria-current={p === page}
+              className={`font-mono text-[11.5px] min-w-[26px] h-[26px] px-1.5 rounded border transition-colors ${
+                p === page
+                  ? 'bg-cyan/15 border-cyan/50 text-cyan font-semibold'
+                  : 'bg-panel-2 border-line text-fg-2 hover:text-fg hover:border-cyan'
+              }`}
+            >
+              {p}
+            </button>
+          ),
+        )}
+        <button className={arrow} disabled={page >= pageCount} onClick={() => onPage(page + 1)} title="Next">
+          <ChevronRight size={14} />
         </button>
       </div>
     </div>

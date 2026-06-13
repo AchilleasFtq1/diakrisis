@@ -41,7 +41,50 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/**
+ * Single-flight refresh: a 401 swaps the expired access token for a fresh one via the rotating
+ * refresh token, and the original request is retried once. Concurrent 401s share one refresh call.
+ * Only when refresh itself fails do we clear the session and surface 401 (→ redirect to login).
+ */
+let refreshInFlight: Promise<Session | null> | null = null;
+
+async function tryRefresh(): Promise<Session | null> {
+  const current = loadSession();
+  if (!current?.refresh_token) return null;
+  if (!refreshInFlight) {
+    refreshInFlight = (async (): Promise<Session | null> => {
+      try {
+        const res = await fetch(`${GATEWAY}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: current.refresh_token }),
+        });
+        if (!res.ok) {
+          clearSession();
+          return null;
+        }
+        const data = await res.json();
+        const next: Session = {
+          token: data.token,
+          refresh_token: data.refresh_token ?? current.refresh_token,
+          expires_at: data.expires_at ?? null,
+          sub: current.sub,
+          roles: current.roles,
+        };
+        saveSession(next);
+        return next;
+      } catch {
+        clearSession();
+        return null;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
+}
+
+async function request<T>(path: string, init: RequestInit = {}, allowRetry = true): Promise<T> {
   const session = loadSession();
   const headers = new Headers(init.headers);
   if (session) headers.set('Authorization', `Bearer ${session.token}`);
@@ -49,6 +92,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const res = await fetch(`${GATEWAY}${path}`, { ...init, headers });
   if (res.status === 401) {
+    if (allowRetry) {
+      const refreshed = await tryRefresh();
+      if (refreshed) return request<T>(path, init, false);
+    }
     clearSession();
     throw new ApiError(401, 'Session expired — sign in again.');
   }
@@ -70,6 +117,8 @@ export async function login(username: string, password: string): Promise<Session
   const data = await res.json();
   const session: Session = {
     token: data.token,
+    refresh_token: data.refresh_token ?? null,
+    expires_at: data.expires_at ?? null,
     sub: data.sub ?? username,
     roles: data.roles ?? [],
   };
