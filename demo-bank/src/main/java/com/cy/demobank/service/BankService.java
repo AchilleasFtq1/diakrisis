@@ -156,9 +156,15 @@ public class BankService {
     // ------------------------------------------------------------------------------------------------
 
     /**
-     * Score breaking a term deposit and, on ALLOW, free the (penalty-reduced) principal into the
-     * account. Diakrisis returns CONFIRM for a normal break (never HOLD/BLOCK) and records the
-     * freed-funds posture that a follow-on drain transfer trips — the liquidation kill-chain.
+     * Score breaking a term deposit and, on confirmation, mark it broken. Diakrisis returns CONFIRM
+     * for a normal break (never HOLD/BLOCK) and records the freed-funds posture that a follow-on drain
+     * transfer trips — the liquidation kill-chain.
+     *
+     * <p>The freed principal is NOT immediately credited to the spendable available balance: in a real
+     * bank a broken-deposit settles rather than landing instantly. Keeping the available balance at its
+     * pre-break value is also what makes the kill-chain's follow-on sweep a genuine liquidation of the
+     * account (the decision engine's drain signal is calibrated against the real available balance), so
+     * the second leg correctly trips {@code liquidation_kill_chain}.
      */
     public ActionResult breakDeposit(String depositId) {
         Deposit deposit = depositRepository.findById(depositId)
@@ -179,16 +185,15 @@ public class BankService {
         DecisionResponse decision = decisionClient.decide(account.ownerUser(), event);
         String verdict = decision.effectiveDecision();
         // A CONFIRM is the expected normal-break verdict; for the demo we treat ALLOW or CONFIRM as
-        // "the customer confirmed" and free the funds so the kill-chain's posture is established.
+        // "the customer confirmed", which commits the break (and the engine's freed-funds posture).
         boolean execute = VERDICT_ALLOW.equals(verdict) || "CONFIRM".equals(verdict);
         if (execute) {
             depositRepository.markBroken(deposit.id());
-            long freedCents = deposit.principalCents() - deposit.penaltyCents();
-            accountRepository.credit(account.id(), freedCents);
         }
         String message = execute
-                ? "Deposit " + depositId + " broken; freed "
-                    + deposit.principalEur().subtract(deposit.penaltyEur()) + " EUR into " + account.id() + "."
+                ? "Deposit " + depositId + " broken; "
+                    + deposit.principalEur().subtract(deposit.penaltyEur())
+                    + " EUR freed (settling) for " + account.id() + "."
                 : "Deposit break not applied (verdict " + verdict + ").";
         return new ActionResult(decision, execute, message, "TERM_DEPOSIT_BREAK");
     }

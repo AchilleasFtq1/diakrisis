@@ -60,10 +60,4 @@ public class AccountRepository {
                 """, amountCents, accountId, amountCents);
         return updated == 1;
     }
-
-    /** Credit an account by {@code amountCents} (e.g. crediting freed deposit principal). */
-    public void credit(String accountId, long amountCents) {
-        jdbc.update("UPDATE accounts SET available_balance_cents = available_balance_cents + ? WHERE id = ?",
-                amountCents, accountId);
-    }
 }
