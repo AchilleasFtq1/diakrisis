@@ -122,6 +122,9 @@ services:
       dockerfile: decision-service/Dockerfile
     image: diakrisis/decision-service:0.1.0
     container_name: diakrisis-decision-service
+    # Reach the host's native Ollama (the co-judge) from inside the container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       dynamodb:
         condition: service_healthy
@@ -132,10 +135,15 @@ services:
       DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
       DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
       DIAKRISIS_MODELS_DIR: "/models"
-      # §9.4 AI co-judge: point at the in-network Ollama service (only present under the 'llm'
-      # profile). When that service is absent the URL is unreachable and the co-judge degrades to
-      # UNAVAILABLE at boot — the engine is unaffected, so the default `up` needs no model daemon.
-      DIAKRISIS_COJUDGE_OLLAMA_URL: "http://ollama:11434"
+      # §9.4 AI co-judge (ENABLED on every decision): point at the host's NATIVE Ollama (Metal) which
+      # holds gemma4:e2b — reach it from the container via host.docker.internal. Run native Ollama on
+      # 0.0.0.0 so the container can connect: `OLLAMA_HOST=0.0.0.0:11434 HOME=$HOME ollama serve`.
+      # The budget is raised to 4s so Gemma's ~1.3–4s reply lands within budget (it runs inline before
+      # the verdict, so each decision now takes ~that long — by design, the engine is still <50ms). If
+      # Ollama is unreachable the co-judge degrades to UNAVAILABLE and the engine is unaffected.
+      DIAKRISIS_COJUDGE_OLLAMA_URL: "http://host.docker.internal:11434"
+      DIAKRISIS_COJUDGE_TIMEOUT_MS: "4000"
+      DIAKRISIS_COJUDGE_ENABLED: "true"
       # §9.2 M2 backend: AUTO prefers the in-network Qdrant (only present under the 'm2' profile) and
       # degrades to the in-JVM KDTree fallback automatically when it is absent — so the default `up`
       # needs no vector store, while `docker compose --profile m2 up` serves M2 live from Qdrant.

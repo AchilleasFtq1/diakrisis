@@ -7,6 +7,7 @@ import { Panel, SignalBar } from '../components/widgets';
 import { OutcomePill, ScoreMeter, NeedsReview, Mono } from '../components/primitives';
 import { KillChainTimeline } from '../components/KillChainTimeline';
 import { euro } from '../lib/format';
+import type { Outcome } from '../lib/types';
 
 export default function DecisionDetail() {
   const { id = '' } = useParams();
@@ -96,19 +97,43 @@ export default function DecisionDetail() {
         {/* right column */}
         <div className="space-y-6">
           <Panel title="Engine vs AI co-judge">
-            <div className="flex items-center gap-3">
-              <Cpu size={16} className="text-cyan" />
+            <div className="flex items-start gap-3">
+              <Cpu size={16} className="text-cyan mt-0.5" />
               <div className="flex-1">
                 <div className="text-[11px] text-muted">Engine verdict</div>
                 <div className="mt-1"><OutcomePill outcome={ev?.decision ?? null} /></div>
               </div>
               <div className="flex-1">
-                <div className="text-[11px] text-muted">AI co-judge</div>
-                <div className="mt-1">{aiUnavailable ? <NeedsReview label="UNAVAILABLE" /> : <Mono className="text-fg">{ai?.decision ?? '—'}</Mono>}</div>
+                <div className="text-[11px] text-muted">AI co-judge · Gemma</div>
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  {aiUnavailable ? (
+                    <NeedsReview label="UNAVAILABLE" />
+                  ) : (
+                    <>
+                      <OutcomePill outcome={(ai?.decision as Outcome) ?? null} />
+                      {ai?.score != null && <Mono className="text-[11px] text-fg-2">score {ai.score}</Mono>}
+                      {ai?.agreement && (
+                        <span
+                          className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
+                            ai.agreement === 'CONCUR'
+                              ? 'text-allow bg-allow/10 border-allow/30'
+                              : 'text-confirm bg-confirm/10 border-confirm/30'
+                          }`}
+                        >
+                          {ai.agreement}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
+            {!aiUnavailable && ai?.reason && (
+              <p className="mt-3 text-[12px] text-fg leading-relaxed">“{ai.reason}”</p>
+            )}
             <p className="mt-3 text-[11.5px] text-muted">
-              The co-judge is advisory and can only escalate — it defaults to UNAVAILABLE and never blocks the decision path.
+              A live local LLM (Gemma) second opinion, run inline within a {`${d?.latency_ms ?? '—'}`}ms budget. It is
+              advisory and can only escalate — never relax — the engine's verdict.
             </p>
           </Panel>
 

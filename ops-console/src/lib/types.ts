@@ -59,7 +59,13 @@ export interface DecisionDetail {
     typologies: string[];
     signals: Signal[];
   };
-  ai_co_judge?: { status?: string; decision?: string; score?: number } | null;
+  ai_co_judge?: {
+    status?: string;
+    decision?: Outcome | string;
+    score?: number;
+    reason?: string;
+    agreement?: string;
+  } | null;
   combined: { decision: Outcome; basis: string | null; reason_code: string | null };
   lifecycle?: { state?: string } | null;
   explanation: { customer: string | null; audit: string | null } | null;
