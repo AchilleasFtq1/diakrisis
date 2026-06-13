@@ -27,6 +27,8 @@ public record DecisionResponse(
             int score,
             String decision,
             boolean scaExempt,
+            boolean scaRequired,
+            String friction,
             List<String> typologies
     ) {
     }
@@ -63,6 +65,16 @@ public record DecisionResponse(
         return engineVerdict == null || engineVerdict.typologies() == null
                 ? List.of()
                 : engineVerdict.typologies();
+    }
+
+    /** Whether the bank must step up with SCA (re-authentication) before executing — true on CONFIRM. */
+    public boolean scaRequired() {
+        return engineVerdict != null && engineVerdict.scaRequired();
+    }
+
+    /** The friction the bank must apply (engine-reported), e.g. {@code SCA_STEP_UP}, {@code FREEZE_AND_WARN}. */
+    public String friction() {
+        return engineVerdict == null ? null : engineVerdict.friction();
     }
 
     /** The customer-facing explanation, or null on a clean ALLOW. */

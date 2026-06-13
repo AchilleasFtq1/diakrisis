@@ -31,6 +31,13 @@
             <dd th:if="${result.decision.engineVerdict != null}"
                 th:text="${result.decision.engineVerdict.score}">12</dd>
 
+            <dt th:if="${result.decision.friction() != null}">Friction (bank action)</dt>
+            <dd th:if="${result.decision.friction() != null}" th:text="${result.decision.friction()}">SCA_STEP_UP</dd>
+
+            <dt>Strong Customer Auth</dt>
+            <dd th:text="${result.decision.scaRequired()} ? 'REQUIRED — step-up before sending'
+                : (${result.verdict} == 'ALLOW' ? 'Exempt (PSD2 TRA)' : 'n/a for this outcome')">REQUIRED</dd>
+
             <dt th:if="${!result.typologies.isEmpty()}">Pattern(s) named</dt>
             <dd th:if="${!result.typologies.isEmpty()}">
                 <span class="typology" th:each="t : ${result.typologies}" th:text="${t}">liquidation_kill_chain</span>
@@ -50,6 +57,59 @@
             <dt>Decision latency</dt>
             <dd th:text="${result.decision.latencyMs} + ' ms'">7 ms</dd>
         </dl>
+    </section>
+
+    <!-- What the bank does next — the friction rung made tangible, per outcome. -->
+    <section class="next-step" th:switch="${result.verdict}"
+             th:classappend="${result.verdict} == 'ALLOW' ? 'allow'
+                 : (${result.verdict} == 'BLOCK' ? 'block'
+                 : (${result.verdict} == 'HOLD' ? 'hold' : 'caution'))">
+        <h2 class="ns-title">What the bank does now</h2>
+
+        <div th:case="'ALLOW'">
+            <p class="ns-lead">Sent immediately — no extra checks.</p>
+            <p class="ns-detail">Low risk, so the payment goes through silently and is
+                <strong>SCA-exempt</strong> under PSD2 RTS Art.18 (TRA). The product working invisibly.</p>
+        </div>
+
+        <div th:case="'CONFIRM'">
+            <p class="ns-lead">Step-up authentication, then one tap to send.</p>
+            <p class="ns-detail" th:if="${result.decision.customerExplanation() != null}"
+               th:text="${result.decision.customerExplanation()}">Please confirm this is the right person…</p>
+            <div class="sca-box">
+                <span class="sca-label">Verify it's you</span>
+                <div class="sca-code">
+                    <span>•</span><span>•</span><span>•</span><span>•</span><span>•</span><span>•</span>
+                </div>
+                <span class="sca-hint">Enter the 6-digit code we texted to your phone, then tap Confirm</span>
+                <span class="btn static">Confirm &amp; send</span>
+            </div>
+            <p class="ns-why"><strong>Why SCA here:</strong> it stops a hijacked session — a criminal
+                with your password but not your phone is blocked. (It can't stop an APP scam, where
+                <em>you</em> are the genuine victim — that is what a HOLD is for.)</p>
+        </div>
+
+        <div th:case="'REQUIRE_APPROVAL'">
+            <p class="ns-lead">A second person must approve before it is sent.</p>
+            <p class="ns-detail">The payment is parked. Our call-center / an authorised approver will
+                <strong>phone you to verify it is genuine</strong>, then approve or reject it. The person
+                who started the payment can never approve their own (four-eyes).</p>
+        </div>
+
+        <div th:case="'HOLD'">
+            <p class="ns-lead">Paused — we have <strong>not</strong> sent this money.</p>
+            <p class="ns-warning" th:if="${result.decision.customerExplanation() != null}"
+               th:text="${result.decision.customerExplanation()}">This looks like a safe-account scam…</p>
+            <p class="ns-detail">A hold is a <strong>freeze</strong> — there is no one-tap "send" here.
+                Your only option now is to cancel; releasing it later needs an extra check with the bank.</p>
+            <span class="btn danger static">Cancel payment</span>
+        </div>
+
+        <div th:case="'BLOCK'">
+            <p class="ns-lead">Stopped — this payment looks like fraud.</p>
+            <p class="ns-detail">It has been stopped and routed to our fraud team for manual review.
+                It cannot be self-cleared.</p>
+        </div>
     </section>
 
     <section class="balance">

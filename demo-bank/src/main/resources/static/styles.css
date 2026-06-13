@@ -101,6 +101,29 @@ dd.audit { color: var(--muted); font-size: .88rem; }
 
 .typology { display: inline-block; background: #fde7e6; color: var(--block); padding: .1rem .5rem; border-radius: 4px; margin-right: .3rem; font-size: .85rem; }
 
+/* "What the bank does now" — the friction rung made tangible. */
+.next-step { margin-top: 1rem; background: #fff; border: 1px solid var(--line); border-left-width: 6px; border-radius: 8px; padding: 1.1rem 1.4rem; }
+.next-step.allow { border-left-color: var(--allow); }
+.next-step.hold { border-left-color: var(--hold); }
+.next-step.block { border-left-color: var(--block); }
+.next-step.caution { border-left-color: var(--caution); }
+.ns-title { margin: 0 0 .6rem; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.ns-lead { margin: .2rem 0; font-size: 1.05rem; font-weight: 600; }
+.ns-detail { margin: .4rem 0; color: var(--ink); }
+.ns-why { margin: .6rem 0 0; font-size: .9rem; color: var(--muted); }
+.ns-warning { margin: .5rem 0; padding: .7rem .9rem; background: #fff6e5; border: 1px solid #f0d9a0; border-radius: 6px; color: #6b4e00; font-weight: 500; }
+.next-step.block .ns-warning { background: #fde7e6; border-color: #f1b6b2; color: var(--block); }
+
+/* CONFIRM step-up panel. */
+.sca-box { margin: .7rem 0; padding: .9rem 1rem; background: #f1f5fb; border: 1px solid #cdddf0; border-radius: 8px; display: flex; flex-direction: column; gap: .5rem; align-items: flex-start; }
+.sca-label { font-weight: 700; color: #1c3a5e; }
+.sca-code { display: flex; gap: .4rem; }
+.sca-code span { width: 2rem; height: 2.4rem; display: grid; place-items: center; background: #fff; border: 1px solid #cdddf0; border-radius: 6px; font-size: 1.2rem; color: #1c3a5e; }
+.sca-hint { font-size: .85rem; color: var(--muted); }
+
+/* A non-interactive button that shows the affordance (demo: the real flow posts to /actions/{id}/…). */
+.btn.static { pointer-events: none; opacity: .92; }
+
 @media (max-width: 720px) {
     .grid { grid-template-columns: 1fr; }
     dl { grid-template-columns: 1fr; }

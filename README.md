@@ -16,13 +16,24 @@ decision itself**.
 
 ## Five graduated outcomes
 
-| Outcome | Friction |
-|---|---|
-| `ALLOW` | none (SCA-exempt where PSD2 RTS Art. 18 TRA permits) — the product working silently |
-| `CONFIRM` | one specific sentence + one tap (purpose prompt on liquidity actions) |
-| `REQUIRE_APPROVAL` | a second authorized person must approve (four-eyes; initiator can't self-approve) |
-| `HOLD` | cooling-off + scam-pattern-naming warning + one-tap cancel (never auto-executes) |
-| `BLOCK` | stopped; manual review (rare by design) |
+Each verdict carries the **friction the bank must apply** (the engine returns it as `friction` +
+`sca_required` on the verdict, so the bank doesn't have to re-derive it). The rungs are deliberately
+ordered to defeat **different** attackers:
+
+| Outcome | `friction` | What the bank does | Stops which attacker |
+|---|---|---|---|
+| `ALLOW` | `NONE` | execute silently; **SCA-exempt** (PSD2 RTS Art.18 TRA) — the product working invisibly | — (low risk) |
+| `CONFIRM` | `SCA_STEP_UP` | **step-up re-authentication** (`sca_required`) + a one-sentence, one-tap purpose prompt | the **hacker** — a hijacked session can't pass a second factor |
+| `REQUIRE_APPROVAL` | `SECOND_APPROVAL` | park it; a second authorised person **or the call-center/admin phones the customer** to verify, then approves/rejects (initiator can't self-approve) | insider / high-value business |
+| `HOLD` | `FREEZE_AND_WARN` | **freeze** (never auto-sends), name the scam pattern to the customer, one-tap cancel; release later needs an extra check | the **APP scammer** — the victim authenticates genuinely, so only naming + freeze works |
+| `BLOCK` | `STOP_AND_REVIEW` | stop and route to manual fraud review | high-confidence fraud |
+
+**Why two anti-takeover layers (SCA *and* HOLD).** SCA on `CONFIRM` defeats account takeover (the
+criminal holds the session but not your second factor) — but it's useless against an APP scam,
+because the genuine victim is at the keyboard and passes SCA happily. `HOLD` is the APP-scam defence:
+it doesn't ask "are you you?", it freezes the money and **names the manipulation** to break the
+scammer's spell. Each layer covers the previous one's blind spot. (The `demo-bank` verdict screen
+renders exactly this per outcome — the `CONFIRM` step-up box, the `HOLD` freeze with only a Cancel.)
 
 No single signal decides anything — the verdict is a weighted **combination** of signals
 (Σ weight·value, clipped 0–100) plus executable typologies. A new geo on a familiar device is

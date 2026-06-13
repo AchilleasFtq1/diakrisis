@@ -10,6 +10,8 @@ public record EngineVerdict(
         Verdict decision,
         boolean scaExempt,
         String scaExemptBasis,
+        boolean scaRequired,
+        Friction friction,
         List<String> typologies,
         List<Signal> signals
 ) {

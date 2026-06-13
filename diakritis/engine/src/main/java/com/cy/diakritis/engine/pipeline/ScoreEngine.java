@@ -7,6 +7,7 @@ import com.cy.diakritis.common.dto.BeneficiaryAddPayload;
 import com.cy.diakritis.common.dto.Counterparty;
 import com.cy.diakritis.common.dto.DepositBreakPayload;
 import com.cy.diakritis.common.dto.EngineVerdict;
+import com.cy.diakritis.common.dto.Friction;
 import com.cy.diakritis.common.dto.EventType;
 import com.cy.diakritis.common.dto.Explanation;
 import com.cy.diakritis.common.dto.ItemResult;
@@ -250,13 +251,18 @@ public final class ScoreEngine {
         // 10. Policy routing.
         decision = applyPolicyRouting(decision, event, store);
 
-        // 11. SCA TRA exemption.
+        // 11. SCA TRA exemption + the friction the bank must apply (the "what to do", per §17 / the
+        // five graduated outcomes). SCA is exempted only on a clean ALLOW transfer; it is *required* as
+        // a step-up on CONFIRM (defeating a hijacked session — an attack the genuine victim of an APP
+        // scam would otherwise sail through, which is why HOLD's freeze exists above it).
         boolean scaExempt = decision == Verdict.ALLOW
                 && (type == EventType.TRANSFER || type == EventType.P2P_TRANSFER);
         String scaBasis = scaExempt ? SCA_TRA_BASIS : null;
+        boolean scaRequired = decision == Verdict.CONFIRM;
 
         EngineVerdict engineVerdict = new EngineVerdict(
-                raw, decision, scaExempt, scaBasis, typologies, scored.signals);
+                raw, decision, scaExempt, scaBasis, scaRequired, frictionFor(decision),
+                typologies, scored.signals);
 
         String reasonCode = reasonCode(decision, typologies, scored.values);
         Explanation explanation = explanationFor(decision, type, typologies, counterparty);
@@ -372,7 +378,8 @@ public final class ScoreEngine {
 
         List<String> dedupTypologies = allTypologies.stream().distinct().toList();
         EngineVerdict engineVerdict = new EngineVerdict(
-                worstRaw, batchDecision, false, null, dedupTypologies, aggregateSignals);
+                worstRaw, batchDecision, false, null, batchDecision == Verdict.CONFIRM,
+                frictionFor(batchDecision), dedupTypologies, aggregateSignals);
 
         String reasonCode = reasonCode(batchDecision, dedupTypologies, Map.of());
         Explanation explanation = explanationFor(batchDecision, EventType.MASS_PAYMENT, dedupTypologies, null);
@@ -526,6 +533,21 @@ public final class ScoreEngine {
     // --- reason codes & explanation ----------------------------------------------------------
 
     private static final double X1_REASON_THRESHOLD = 0.5;
+
+    /**
+     * The friction the bank must apply for a verdict — the executable "what to do" behind each of the
+     * five graduated outcomes. A pure function of the verdict, so the same ladder is reported to every
+     * consumer (the bank renders it; the engine never decides UI).
+     */
+    private static Friction frictionFor(Verdict decision) {
+        return switch (decision) {
+            case ALLOW -> Friction.NONE;
+            case CONFIRM -> Friction.SCA_STEP_UP;
+            case REQUIRE_APPROVAL -> Friction.SECOND_APPROVAL;
+            case HOLD -> Friction.FREEZE_AND_WARN;
+            case BLOCK -> Friction.STOP_AND_REVIEW;
+        };
+    }
 
     private static String reasonCode(Verdict decision, List<String> typologies, Map<String, Double> values) {
         if (typologies.contains(Typologies.LIQUIDATION_KILL_CHAIN)) {
