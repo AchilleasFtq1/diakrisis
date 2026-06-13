@@ -3,139 +3,86 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <title>Meridian — verdict</title>
+    <title>Meridian — payment</title>
     <link rel="preconnect" href="https://fonts.googleapis.com"/>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet"/>
     <link rel="stylesheet" th:href="@{/styles.css}"/>
 </head>
 <body>
-<div class="topbar">
-    <div class="brand">
-        <a th:href="@{/}"><span class="mark">Mer<em>i</em>dian</span></a>
-        <span class="tag">Private Bank</span>
-    </div>
-    <span class="trust-chip">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
-        Secured by Diakrisis
-    </span>
-</div>
+<div class="app">
+    <div th:replace="~{fragments/nav :: sidebar(${navActive})}"></div>
+    <main class="main">
+        <p class="crumb"><a th:href="@{'/accounts/' + ${account.id}}">← Account <span th:text="${account.id}">acc-A</span></a></p>
 
-<div class="wrap">
-    <p class="crumb"><a th:href="@{'/accounts/' + ${account.id}}">← Account <span th:text="${account.id}">acc-A</span></a></p>
-
-    <!-- The verdict, in semantic colour. -->
-    <section class="verdict-hero"
-             th:classappend="${result.verdict} == 'ALLOW' ? 'allow'
-                 : (${result.verdict} == 'BLOCK' ? 'block'
-                 : (${result.verdict} == 'HOLD' ? 'hold' : 'caution'))">
-        <div class="bar"></div>
-        <div class="body">
-            <div class="verdict-row">
-                <span class="badge" th:text="${result.verdict}">ALLOW</span>
-                <span class="event-type" th:text="${result.eventType}">TRANSFER</span>
-                <span class="chip" th:classappend="${result.applied} ? 'yes' : 'no'"
-                      th:text="${result.applied} ? 'Executed' : 'Not executed'">Executed</span>
+        <!-- Customer payment result — ordinary banking language; no engine verdict/score/codes. -->
+        <section class="result" th:classappend="${result.statusClass()}">
+            <div class="result-icon" th:switch="${result.statusClass()}">
+                <span th:case="'sent'">✓</span>
+                <span th:case="'paused'">⏸</span>
+                <span th:case="'approval'">☎</span>
+                <span th:case="'declined'">✕</span>
+                <span th:case="*">🔒</span>
             </div>
-            <p class="verdict-msg" th:text="${result.message}">Transfer executed.</p>
+            <h1 class="result-headline" th:text="${result.headline()}">Payment sent</h1>
+            <p class="result-body" th:text="${result.body()}">Your payment has been sent.</p>
+            <span class="status-pill lg" th:classappend="${result.statusClass()}" th:text="${result.statusLabel()}">Sent</span>
+        </section>
 
-            <dl class="facts">
-                <dt th:if="${result.decision.engineVerdict != null}">Engine score</dt>
-                <dd th:if="${result.decision.engineVerdict != null}"
-                    th:text="${result.decision.engineVerdict.score} + ' / 100'">12 / 100</dd>
+        <!-- Paused: name the scam to the customer + the only action is Cancel. -->
+        <section class="card alert" th:if="${result.showCancel()}">
+            <p class="ns-warning" th:if="${result.scamWarning() != null}" th:text="${result.scamWarning()}">This looks like a safe-account scam…</p>
+            <p class="muted">We won't send this payment unless you confirm with us. If you weren't expecting to
+                move this money, do nothing — you're protected.</p>
+            <a class="btn danger" th:href="@{'/accounts/' + ${account.id}}">Cancel payment</a>
+        </section>
 
-                <dt th:if="${result.decision.friction() != null}">Friction</dt>
-                <dd th:if="${result.decision.friction() != null}"><code th:text="${result.decision.friction()}">SCA_STEP_UP</code></dd>
-
-                <dt>Strong Customer Auth</dt>
-                <dd th:text="${result.decision.scaRequired()} ? 'Required — step-up before sending'
-                    : (${result.verdict} == 'ALLOW' ? 'Exempt (PSD2 TRA)' : 'n/a for this outcome')">Required</dd>
-
-                <dt th:if="${!result.typologies.isEmpty()}">Pattern(s) named</dt>
-                <dd th:if="${!result.typologies.isEmpty()}">
-                    <span class="typology" th:each="t : ${result.typologies}" th:text="${t}">liquidation_kill_chain</span>
-                </dd>
-
-                <dt th:if="${result.decision.reasonCode != null}">Reason code</dt>
-                <dd th:if="${result.decision.reasonCode != null}"><code th:text="${result.decision.reasonCode}">DKR-KILLCHAIN</code></dd>
-
-                <dt th:if="${result.decision.auditExplanation() != null}">Audit</dt>
-                <dd class="audit" th:if="${result.decision.auditExplanation() != null}"
-                    th:text="${result.decision.auditExplanation()}">…</dd>
-
-                <dt>Decision latency</dt>
-                <dd><code th:text="${result.decision.latencyMs} + ' ms'">7 ms</code></dd>
-            </dl>
-        </div>
-    </section>
-
-    <!-- What the bank does next — the friction rung made tangible, per outcome. -->
-    <section class="next-step" th:switch="${result.verdict}"
-             th:classappend="${result.verdict} == 'ALLOW' ? 'allow'
-                 : (${result.verdict} == 'BLOCK' ? 'block'
-                 : (${result.verdict} == 'HOLD' ? 'hold' : 'caution'))">
-        <h2 class="ns-title">What Meridian does now</h2>
-
-        <div th:case="'ALLOW'">
-            <p class="ns-lead">Sent immediately — no extra checks.</p>
-            <p class="ns-detail">Low risk, so the payment goes through silently and is
-                <strong>SCA-exempt</strong> under PSD2 RTS Art.18 (TRA). The product working invisibly.</p>
-        </div>
-
-        <div th:case="'CONFIRM'">
-            <p class="ns-lead">Step-up authentication, then one tap to send.</p>
-            <p class="ns-detail" th:if="${result.decision.customerExplanation() != null}"
-               th:text="${result.decision.customerExplanation()}">Please confirm this is the right person…</p>
+        <!-- Pending (CONFIRM): step-up authentication. -->
+        <section class="card" th:if="${result.showSca()}">
+            <h2>Verify it's you</h2>
             <div class="sca-box">
                 <span class="sca-label">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                    Verify it&#39;s you
+                    Enter your code
                 </span>
                 <div class="sca-code">
                     <span>&#8226;</span><span>&#8226;</span><span>&#8226;</span><span>&#8226;</span><span>&#8226;</span><span>&#8226;</span>
                 </div>
-                <span class="sca-hint">Enter the 6-digit code we texted to your phone, then tap Confirm</span>
+                <span class="sca-hint">We've texted a 6-digit code to your phone. Enter it to send this payment.</span>
                 <span class="btn static">Confirm &amp; send</span>
             </div>
-            <p class="ns-why"><strong>Why SCA here:</strong> it stops a hijacked session — a criminal
-                with your password but not your phone is blocked. (It can&#39;t stop an APP scam, where
-                <em>you</em> are the genuine victim — that is what a HOLD is for.)</p>
-        </div>
+        </section>
 
-        <div th:case="'REQUIRE_APPROVAL'">
-            <p class="ns-lead">A second person must approve before it is sent.</p>
-            <p class="ns-detail">The payment is parked. Our call-center / an authorised approver will
-                <strong>phone you to verify it is genuine</strong>, then approve or reject it. The person
-                who started the payment can never approve their own (four-eyes).</p>
-        </div>
+        <!-- Awaiting approval. -->
+        <section class="card" th:if="${result.showApproval()}">
+            <p class="muted">A member of our team will call you on your registered number to confirm this
+                payment is genuine before it's sent. No action is needed from you right now.</p>
+        </section>
 
-        <div th:case="'HOLD'">
-            <p class="ns-lead">Paused — we have <strong>not</strong> sent this money.</p>
-            <p class="ns-warning" th:if="${result.decision.customerExplanation() != null}"
-               th:text="${result.decision.customerExplanation()}">This looks like a safe-account scam…</p>
-            <p class="ns-detail">A hold is a <strong>freeze</strong> — there is no one-tap &ldquo;send&rdquo; here.
-                Your only option now is to cancel; releasing it later needs an extra check with the bank.</p>
-            <span class="btn danger static">Cancel payment</span>
-        </div>
+        <!-- Receipt (shown for payments that carry one). -->
+        <section class="panel receipt" th:if="${receipt != null}">
+            <h2>Payment details</h2>
+            <dl class="facts">
+                <dt>To</dt><dd th:text="${receipt.to()}">CD Supplier</dd>
+                <dt th:if="${receipt.iban() != null}">IBAN</dt>
+                <dd th:if="${receipt.iban() != null}"><code th:text="${receipt.iban()}">CY17…</code></dd>
+                <dt th:if="${receipt.bic() != null}">BIC</dt>
+                <dd th:if="${receipt.bic() != null}"><code th:text="${receipt.bic()}">CDSUCY2N</code></dd>
+                <dt>Amount</dt><dd><strong><span th:text="${receipt.amount()}">120.00</span> EUR</strong></dd>
+                <dt th:if="${receipt.reference() != null}">Reference</dt>
+                <dd th:if="${receipt.reference() != null}" th:text="${receipt.reference()}">Invoice 2043</dd>
+                <dt>Scheme</dt><dd th:text="${receipt.rail()}">SEPA</dd>
+                <dt>Status</dt><dd><span class="status-pill" th:classappend="${result.statusClass()}" th:text="${result.statusLabel()}">Sent</span></dd>
+                <dt th:if="${result.confirmationId() != null}">Confirmation</dt>
+                <dd th:if="${result.confirmationId() != null}"><code th:text="${result.confirmationId()}">MRD-1A2B3C4D</code></dd>
+            </dl>
+        </section>
 
-        <div th:case="'BLOCK'">
-            <p class="ns-lead">Stopped — this payment looks like fraud.</p>
-            <p class="ns-detail">It has been stopped and routed to our fraud team for manual review.
-                It cannot be self-cleared.</p>
-        </div>
-    </section>
-
-    <section class="balance-hero mb-0">
-        <span class="label">Balance now</span>
-        <span class="amount"><span th:text="${account.availableBalanceEur}">4500.00</span><span class="cur">EUR</span></span>
-    </section>
-
-    <p class="mt-md"><a class="btn ghost" th:href="@{'/accounts/' + ${account.id}}">← Back to account</a></p>
+        <p class="mt-md">
+            <a class="btn" th:href="@{/pay}">Make another payment</a>
+            <a class="btn ghost" th:href="@{'/accounts/' + ${account.id}}">View statement</a>
+        </p>
+    </main>
 </div>
-
-<footer class="footer">
-    <span>MERIDIAN — a demo bank. Payments are screened by <strong>Diakrisis</strong> before they execute.</span>
-    <span>Decision API via gateway <code>:8080</code></span>
-</footer>
 </body>
 </html>

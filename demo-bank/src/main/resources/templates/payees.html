@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Meridian — payees</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" th:href="@{/styles.css}"/>
+</head>
+<body>
+<div class="app">
+    <div th:replace="~{fragments/nav :: sidebar(${navActive})}"></div>
+    <main class="main">
+        <header class="main-head"><div><p class="eyebrow">Payees</p><h1>Saved payees</h1></div></header>
+
+        <div class="cols">
+            <section class="panel">
+                <h2>Your payees</h2>
+                <table class="ledger" th:if="${!payees.isEmpty()}">
+                    <thead><tr><th>Name</th><th>IBAN</th><th>BIC</th></tr></thead>
+                    <tbody>
+                    <tr th:each="p : ${payees}">
+                        <td th:text="${p.displayName}">CD Supplier</td>
+                        <td><code class="key" th:text="${p.iban}">CY17…</code></td>
+                        <td><code class="key" th:text="${p.bic} ?: '—'">CDSUCY2N</code></td>
+                    </tr>
+                    </tbody>
+                </table>
+                <p th:if="${payees.isEmpty()}" class="muted">No saved payees yet.</p>
+            </section>
+
+            <section class="card">
+                <h2>Add a beneficiary</h2>
+                <p class="muted">Diakrisis screens the new payee before it&#39;s saved.</p>
+                <form method="post" th:action="@{/beneficiaries}">
+                    <input type="hidden" name="account" th:value="${selectedAccount}"/>
+                    <label>Beneficiary name <input type="text" name="displayName" value="New Supplier Ltd" required/></label>
+                    <label>IBAN <input type="text" name="iban" value="CY12 0050 0000 0000 0001 2345 6789" required/></label>
+                    <label>BIC / SWIFT <input type="text" name="bic" value="HEBACY2NXXX" maxlength="11"/></label>
+                    <label>Account name (confirmation of payee) <input type="text" name="resolvedName" placeholder="(optional)"/></label>
+                    <button type="submit" class="btn">Add beneficiary</button>
+                </form>
+            </section>
+        </div>
+    </main>
+</div>
+</body>
+</html>

@@ -14,9 +14,11 @@ import com.cy.demobank.client.dto.TransferPayloadDto;
 import com.cy.demobank.domain.Account;
 import com.cy.demobank.domain.Deposit;
 import com.cy.demobank.domain.Payee;
+import com.cy.demobank.domain.Txn;
 import com.cy.demobank.repo.AccountRepository;
 import com.cy.demobank.repo.DepositRepository;
 import com.cy.demobank.repo.PayeeRepository;
+import com.cy.demobank.repo.TransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -50,15 +52,18 @@ public class BankService {
     private final AccountRepository accountRepository;
     private final PayeeRepository payeeRepository;
     private final DepositRepository depositRepository;
+    private final TransactionRepository transactionRepository;
     private final DecisionClient decisionClient;
 
     public BankService(AccountRepository accountRepository,
                        PayeeRepository payeeRepository,
                        DepositRepository depositRepository,
+                       TransactionRepository transactionRepository,
                        DecisionClient decisionClient) {
         this.accountRepository = accountRepository;
         this.payeeRepository = payeeRepository;
         this.depositRepository = depositRepository;
+        this.transactionRepository = transactionRepository;
         this.decisionClient = decisionClient;
     }
 
@@ -83,6 +88,46 @@ public class BankService {
         return depositRepository.findByAccount(accountId);
     }
 
+    /** The accounts a given customer (owner) holds. */
+    public List<Account> accountsForOwner(String ownerUser) {
+        return accountRepository.findAll().stream()
+                .filter(a -> ownerUser.equals(a.ownerUser()))
+                .toList();
+    }
+
+    /** The full statement for an account (newest first). */
+    public List<Txn> statement(String accountId) {
+        return transactionRepository.findByAccount(accountId);
+    }
+
+    /** All activity for a customer across their accounts (newest first). */
+    public List<Txn> activity(String ownerUser) {
+        return transactionRepository.findByOwner(ownerUser);
+    }
+
+    /** The most recent actions for a customer (dashboard preview). */
+    public List<Txn> recentActivity(String ownerUser, int limit) {
+        return transactionRepository.recentByOwner(ownerUser, limit);
+    }
+
+    /** Persist one action + its live verdict to the statement/activity ledger. */
+    private void record(Account account, String kind, String cpName, String cpRef,
+                        BigDecimal amountEur, String rail, String reference, ActionResult result) {
+        DecisionResponse d = result.decision();
+        String scam = result.typologies().isEmpty() ? null : String.join(", ", result.typologies());
+        long cents = amountEur == null ? 0L : amountEur.movePointRight(2).longValueExact();
+        transactionRepository.insert(new Txn(
+                UUID.randomUUID().toString(), account.id(), account.ownerUser(), kind, cpName, cpRef,
+                blankToNull(reference), cents, rail, result.verdict(),
+                d == null ? null : d.friction(),
+                d == null ? null : d.reasonCode(),
+                scam, result.applied(), Instant.now().toEpochMilli()));
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s;
+    }
+
     // ------------------------------------------------------------------------------------------------
     // TRANSFER — to an existing established payee.
     // ------------------------------------------------------------------------------------------------
@@ -93,16 +138,24 @@ public class BankService {
      * @param rail the payment rail (SEPA, INSTANT, INTERNAL, P2P).
      */
     public ActionResult transfer(String accountId, String cpKey, BigDecimal amountEur, String rail) {
+        return transfer(accountId, cpKey, amountEur, rail, null);
+    }
+
+    public ActionResult transfer(String accountId, String cpKey, BigDecimal amountEur, String rail, String reference) {
         Account account = requireAccount(accountId);
         Payee payee = payeeRepository.find(accountId, cpKey)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown payee " + cpKey + " for " + accountId));
 
+        // The engine reads its established-payee baseline under the counterparty KEY (cpKey, e.g.
+        // "CD|46939146"), so that is what we send as counterparty.value. The payee's IBAN is a
+        // display-only banking detail (shown on the form + receipt) and is not scored.
         CounterpartyDto counterparty = new CounterpartyDto(
-                ADDRESSING_IBAN, payee.iban(), payee.cpKey(), payee.resolvedName(), payee.displayName(),
+                ADDRESSING_IBAN, payee.cpKey(), payee.cpKey(), payee.resolvedName(), payee.displayName(),
                 Instant.ofEpochMilli(payee.createdEpochMs()));
 
         return runTransfer("TRANSFER", account, counterparty, amountEur, rail,
-                mobileContext(eventId("transfer")), "Transfer to " + payee.displayName());
+                mobileContext(eventId("transfer")), "Transfer to " + payee.displayName(),
+                reference);
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -117,7 +170,7 @@ public class BankService {
                 ADDRESSING_MSISDN, alias, resolvedRef, resolvedName, resolvedName, null);
 
         return runTransfer("P2P_TRANSFER", account, counterparty, amountEur, "P2P",
-                mobileContext(eventId("p2p")), "P2P to " + resolvedName + " (" + alias + ")");
+                mobileContext(eventId("p2p")), "P2P to " + resolvedName + " (" + alias + ")", null);
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -125,6 +178,11 @@ public class BankService {
     // ------------------------------------------------------------------------------------------------
 
     public ActionResult addBeneficiary(String accountId, String iban, String displayName,
+                                       String resolvedName) {
+        return addBeneficiary(accountId, iban, null, displayName, resolvedName);
+    }
+
+    public ActionResult addBeneficiary(String accountId, String iban, String bic, String displayName,
                                        String resolvedName) {
         Account account = requireAccount(accountId);
         String cpKey = iban; // For the demo the counterparty key IS the IBAN/addressing value.
@@ -143,12 +201,14 @@ public class BankService {
         boolean allowed = VERDICT_ALLOW.equals(verdict);
         if (allowed) {
             payeeRepository.insert(new Payee(
-                    accountId, cpKey, iban, displayName, resolvedName, Instant.now().toEpochMilli()));
+                    accountId, cpKey, iban, bic, displayName, resolvedName, Instant.now().toEpochMilli()));
         }
         String message = allowed
                 ? "Beneficiary '" + displayName + "' added."
                 : "Beneficiary add not applied (verdict " + verdict + ").";
-        return new ActionResult(decision, allowed, message, "BENEFICIARY_ADD");
+        ActionResult result = new ActionResult(decision, allowed, message, "BENEFICIARY_ADD");
+        record(account, "PAYEE_ADD", displayName, iban, BigDecimal.ZERO, null, null, result);
+        return result;
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -195,7 +255,10 @@ public class BankService {
                     + deposit.principalEur().subtract(deposit.penaltyEur())
                     + " EUR freed (settling) for " + account.id() + "."
                 : "Deposit break not applied (verdict " + verdict + ").";
-        return new ActionResult(decision, execute, message, "TERM_DEPOSIT_BREAK");
+        ActionResult result = new ActionResult(decision, execute, message, "TERM_DEPOSIT_BREAK");
+        record(account, "DEPOSIT_BREAK", "Term deposit " + deposit.id(), deposit.id(),
+                deposit.principalEur(), null, null, result);
+        return result;
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -209,11 +272,16 @@ public class BankService {
      */
     public ActionResult transferToNew(String accountId, String iban, String resolvedName,
                                       BigDecimal amountEur, String rail) {
+        return transferToNew(accountId, iban, resolvedName, amountEur, rail, null);
+    }
+
+    public ActionResult transferToNew(String accountId, String iban, String resolvedName,
+                                      BigDecimal amountEur, String rail, String reference) {
         Account account = requireAccount(accountId);
         CounterpartyDto counterparty = new CounterpartyDto(
                 ADDRESSING_IBAN, iban, iban, resolvedName, resolvedName == null ? "Payee" : resolvedName, null);
         return runTransfer("TRANSFER", account, counterparty, amountEur, rail,
-                mobileContext(eventId("drain")), "Transfer to new payee " + iban);
+                mobileContext(eventId("drain")), "Transfer to new payee " + iban, reference);
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -255,7 +323,9 @@ public class BankService {
         String message = applied
                 ? "Batch executed: " + total + " EUR across " + lines.size() + " lines."
                 : "Batch not applied (verdict " + verdict + ").";
-        return new ActionResult(decision, applied, message, "MASS_PAYMENT");
+        ActionResult result = new ActionResult(decision, applied, message, "MASS_PAYMENT");
+        record(account, "PAYROLL", "Payroll — " + lines.size() + " line(s)", null, total, rail, "Salary run", result);
+        return result;
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -264,7 +334,7 @@ public class BankService {
 
     private ActionResult runTransfer(String eventType, Account account, CounterpartyDto counterparty,
                                      BigDecimal amountEur, String rail, SessionContextDto context,
-                                     String label) {
+                                     String label, String reference) {
         if (amountEur == null || amountEur.signum() <= 0) {
             throw new IllegalArgumentException("Amount must be positive");
         }
@@ -288,7 +358,10 @@ public class BankService {
         String message = applied
                 ? label + " executed: " + amountEur + " EUR debited from " + account.id() + "."
                 : label + " not applied (verdict " + verdict + ").";
-        return new ActionResult(decision, applied, message, eventType);
+        ActionResult result = new ActionResult(decision, applied, message, eventType);
+        record(account, "P2P_TRANSFER".equals(eventType) ? "P2P" : "TRANSFER",
+                counterparty.displayName(), counterparty.value(), amountEur, rail, reference, result);
+        return result;
     }
 
     // ------------------------------------------------------------------------------------------------

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Meridian — pay a payee</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" th:href="@{/styles.css}"/>
+</head>
+<body>
+<div class="app">
+    <div th:replace="~{fragments/nav :: sidebar(${navActive})}"></div>
+    <main class="main">
+        <p class="crumb"><a th:href="@{/pay}">← Payments</a></p>
+        <header class="main-head"><div><p class="eyebrow">SEPA Credit Transfer</p><h1>Pay a saved payee</h1></div></header>
+
+        <section class="card narrow">
+            <form method="post" th:action="@{/pay}">
+                <label>From account
+                    <select name="account">
+                        <option th:each="a : ${accounts}" th:value="${a.id}"
+                                th:selected="${a.id} == ${selectedAccount}"
+                                th:text="${a.displayName + ' (' + a.id + ')'}">acc-A</option>
+                    </select>
+                </label>
+                <label>Payee
+                    <select name="payee" required>
+                        <option th:each="p : ${payees}" th:value="${p.cpKey}"
+                                th:text="${p.displayName + ' · ' + p.iban}">CD Supplier · CY17…</option>
+                    </select>
+                </label>
+                <label>Amount (EUR)
+                    <input type="number" name="amount" step="0.01" min="0.01" value="120.00" required/></label>
+                <label>Payment reference
+                    <input type="text" name="reference" maxlength="140" value="Invoice 2043"/></label>
+                <label>Scheme
+                    <select name="rail"><option>SEPA</option><option>SEPA Instant</option><option value="INTERNAL">Internal</option></select></label>
+                <button type="submit" class="btn">Review &amp; send</button>
+            </form>
+        </section>
+    </main>
+</div>
+</body>
+</html>

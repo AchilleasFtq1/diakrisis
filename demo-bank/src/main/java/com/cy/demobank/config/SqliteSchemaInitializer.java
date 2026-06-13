@@ -89,9 +89,9 @@ public class SqliteSchemaInitializer implements ApplicationRunner {
         accountRepository.insert(new Account(
                 "acc-A", "Demo Retail Account A", ACC_A_BALANCE_CENTS, "customer-A", false, false));
         payeeRepository.insert(new Payee(
-                "acc-A", CP_A1, CP_A1, "CD Supplier", "CD Supplier", establishedEpochMs));
+                "acc-A", CP_A1, "CY17002001280000001200527600", "CDSUCY2NXXX", "CD Supplier", "CD Supplier", establishedEpochMs));
         payeeRepository.insert(new Payee(
-                "acc-A", CP_A2, CP_A2, "KL Supplier", "KL Supplier", establishedEpochMs));
+                "acc-A", CP_A2, "CY69007001950000001100123456", "KLSUCY2NXXX", "KL Supplier", "KL Supplier", establishedEpochMs));
 
         // acc-B: holds the kill-chain term deposit dep-001.
         accountRepository.insert(new Account(

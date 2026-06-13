@@ -10,174 +10,81 @@
     <link rel="stylesheet" th:href="@{/styles.css}"/>
 </head>
 <body>
-<div class="topbar">
-    <div class="brand">
-        <a th:href="@{/}"><span class="mark">Mer<em>i</em>dian</span></a>
-        <span class="tag">Private Bank</span>
-    </div>
-    <span class="trust-chip">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
-        Secured by Diakrisis
-    </span>
+<div class="app">
+    <div th:replace="~{fragments/nav :: sidebar(${navActive})}"></div>
+    <main class="main">
+        <header class="main-head">
+            <div>
+                <p class="eyebrow">Account</p>
+                <h1 th:text="${account.displayName}">Demo Retail Account A</h1>
+            </div>
+            <a class="btn" th:href="@{/pay(account=${account.id})}">↗ Pay from this account</a>
+        </header>
+
+        <section class="balance-card wide">
+            <span class="bc-label">Available balance</span>
+            <span class="bc-amount"><span th:text="${account.availableBalanceEur}">4500.00</span><span class="cur">EUR</span></span>
+            <span class="bc-meta"><code th:text="${account.id}">acc-A</code> · held by <code th:text="${account.ownerUser}">customer-A</code></span>
+        </section>
+
+        <section class="panel">
+            <h2>Statement</h2>
+            <table class="ledger" th:if="${!statement.isEmpty()}">
+                <thead>
+                <tr><th>When</th><th>To</th><th>Type</th><th>Reference</th><th class="num">Amount</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="t : ${statement}">
+                    <td class="muted" th:text="${t.when()}">3 Jun 2026, 14:02</td>
+                    <td th:text="${t.counterpartyName()}">CD Supplier</td>
+                    <td th:text="${t.typeLabel()}">Transfer</td>
+                    <td class="muted" th:text="${t.reference()} ?: '—'">Invoice 2043</td>
+                    <td class="num" th:text="${t.amountEur()}">120.00</td>
+                    <td><span class="status-pill" th:classappend="${t.statusClass()}" th:text="${t.status()}">Sent</span></td>
+                </tr>
+                </tbody>
+            </table>
+            <p th:if="${statement.isEmpty()}" class="muted">No transactions on this account yet.</p>
+        </section>
+
+        <div class="cols">
+            <section class="panel">
+                <h2>Payees</h2>
+                <table class="ledger" th:if="${!payees.isEmpty()}">
+                    <thead><tr><th>Name</th><th>Account / IBAN</th></tr></thead>
+                    <tbody>
+                    <tr th:each="p : ${payees}">
+                        <td th:text="${p.displayName}">CD Supplier</td>
+                        <td><code class="key" th:text="${p.iban}">CD|46939146</code></td>
+                    </tr>
+                    </tbody>
+                </table>
+                <p th:if="${payees.isEmpty()}" class="muted">No saved payees.</p>
+                <a class="btn ghost sm" th:href="@{/payees(account=${account.id})}">Manage payees →</a>
+            </section>
+
+            <section class="panel" th:if="${!deposits.isEmpty()}">
+                <h2>Term deposits</h2>
+                <table class="ledger">
+                    <thead><tr><th>Deposit</th><th class="num">Principal</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                    <tr th:each="d : ${deposits}">
+                        <td><code class="key" th:text="${d.id}">dep-001</code></td>
+                        <td class="num" th:text="${d.principalEur}">5000.00</td>
+                        <td><span class="tag-pill" th:classappend="${d.broken} ? 'broken' : 'active'"
+                                  th:text="${d.broken} ? 'BROKEN' : 'ACTIVE'">ACTIVE</span></td>
+                        <td>
+                            <form th:if="${!d.broken}" method="post" th:action="@{'/deposits/' + ${d.id} + '/break'}">
+                                <input type="hidden" name="account" th:value="${account.id}"/>
+                                <button type="submit" class="btn danger sm">Break</button>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </section>
+        </div>
+    </main>
 </div>
-
-<div class="wrap">
-    <p class="crumb"><a th:href="@{/}">← All accounts</a></p>
-
-    <section class="balance-hero">
-        <span class="label">Available balance</span>
-        <span class="amount"><span th:text="${account.availableBalanceEur}">4500.00</span><span class="cur">EUR</span></span>
-        <p class="meta"><span th:text="${account.displayName}">Demo Retail Account A</span>
-            · <code th:text="${account.id}">acc-A</code>
-            · held by <code th:text="${account.ownerUser}">customer-A</code></p>
-    </section>
-
-    <section class="panel">
-        <h2>Established payees</h2>
-        <table class="ledger" th:if="${!payees.isEmpty()}">
-            <thead>
-            <tr><th>Key</th><th>IBAN</th><th>Display name</th><th>Resolved name</th></tr>
-            </thead>
-            <tbody>
-            <tr th:each="p : ${payees}">
-                <td><code class="key" th:text="${p.cpKey}">CD|46939146</code></td>
-                <td><code class="key" th:text="${p.iban}">CD|46939146</code></td>
-                <td th:text="${p.displayName}">CD Supplier</td>
-                <td th:text="${p.resolvedName}">CD Supplier</td>
-            </tr>
-            </tbody>
-        </table>
-        <p th:if="${payees.isEmpty()}" class="muted">No established payees on this account.</p>
-    </section>
-
-    <section class="panel" th:if="${!deposits.isEmpty()}">
-        <h2>Term deposits</h2>
-        <table class="ledger">
-            <thead>
-            <tr><th>Deposit</th><th class="num">Principal</th><th class="num">Penalty</th>
-                <th>Status</th><th></th></tr>
-            </thead>
-            <tbody>
-            <tr th:each="d : ${deposits}">
-                <td><code class="key" th:text="${d.id}">dep-001</code></td>
-                <td class="num" th:text="${d.principalEur}">5000.00</td>
-                <td class="num" th:text="${d.penaltyEur}">125.00</td>
-                <td><span class="tag-pill" th:classappend="${d.broken} ? 'broken' : 'active'"
-                          th:text="${d.broken} ? 'BROKEN' : 'ACTIVE'">ACTIVE</span></td>
-                <td>
-                    <form th:if="${!d.broken}" method="post" th:action="@{'/deposits/' + ${d.id} + '/break'}">
-                        <input type="hidden" name="account" th:value="${account.id}"/>
-                        <button type="submit" class="btn danger sm">Break deposit</button>
-                    </form>
-                </td>
-            </tr>
-            </tbody>
-        </table>
-    </section>
-
-    <h2 class="mt-lg">Move money</h2>
-    <div class="grid">
-        <section class="card">
-            <h2>Transfer to an established payee</h2>
-            <p class="muted">Normal, low-risk payment — should sail through.</p>
-            <form method="post" th:action="@{/transfer}">
-                <input type="hidden" name="account" th:value="${account.id}"/>
-                <label>Payee
-                    <select name="payee" required>
-                        <option th:each="p : ${payees}" th:value="${p.cpKey}"
-                                th:text="${p.displayName + ' (' + p.cpKey + ')'}">CD Supplier</option>
-                    </select>
-                </label>
-                <label>Amount (EUR)
-                    <input type="number" name="amount" step="0.01" min="0.01" value="120.00" required/></label>
-                <label>Rail
-                    <select name="rail">
-                        <option value="SEPA">SEPA</option>
-                        <option value="INSTANT">INSTANT</option>
-                        <option value="INTERNAL">INTERNAL</option>
-                    </select>
-                </label>
-                <button type="submit" class="btn">Send transfer</button>
-            </form>
-        </section>
-
-        <section class="card alert">
-            <h2>Drain to a NEW payee</h2>
-            <p class="muted">The kill-chain's second leg: after breaking a deposit, sweep to a never-seen IBAN.</p>
-            <form method="post" th:action="@{/transfer-new}">
-                <input type="hidden" name="account" th:value="${account.id}"/>
-                <label>New IBAN / key
-                    <input type="text" name="iban" th:value="'CY99NEWPAYEE-' + ${account.id}" required/></label>
-                <label>Resolved name <input type="text" name="resolvedName" placeholder="(optional)"/></label>
-                <label>Amount (EUR)
-                    <input type="number" name="amount" step="0.01" min="0.01" value="4850.00" required/></label>
-                <label>Rail
-                    <select name="rail">
-                        <option value="SEPA">SEPA</option>
-                        <option value="INSTANT">INSTANT</option>
-                    </select>
-                </label>
-                <button type="submit" class="btn danger">Send drain transfer</button>
-            </form>
-        </section>
-
-        <section class="card">
-            <h2>P2P send</h2>
-            <p class="muted">Pay a person by phone alias.</p>
-            <form method="post" th:action="@{/p2p}">
-                <input type="hidden" name="account" th:value="${account.id}"/>
-                <label>Alias (phone) <input type="text" name="alias" value="+35799123456" required/></label>
-                <label>Resolved name <input type="text" name="resolvedName" value="George Papadopoulos" required/></label>
-                <label>Amount (EUR)
-                    <input type="number" name="amount" step="0.01" min="0.01" value="50.00" required/></label>
-                <button type="submit" class="btn">Send P2P</button>
-            </form>
-        </section>
-
-        <section class="card">
-            <h2>Add beneficiary</h2>
-            <p class="muted">Register a new payee on the account.</p>
-            <form method="post" th:action="@{/beneficiaries}">
-                <input type="hidden" name="account" th:value="${account.id}"/>
-                <label>IBAN / key <input type="text" name="iban" value="CY12NEWBENEF000001" required/></label>
-                <label>Display name <input type="text" name="displayName" value="New Supplier Ltd" required/></label>
-                <label>Resolved name <input type="text" name="resolvedName" placeholder="(optional)"/></label>
-                <button type="submit" class="btn">Add beneficiary</button>
-            </form>
-        </section>
-
-        <section class="card">
-            <h2>Mass payment (batch)</h2>
-            <p class="muted">Payroll run — a business mass-payment.</p>
-            <form method="post" th:action="@{/batches}">
-                <input type="hidden" name="account" th:value="${account.id}"/>
-                <fieldset>
-                    <legend>Line 1</legend>
-                    <label>IBAN <input type="text" name="iban1" value="CY11EMPLOYEE0000001" required/></label>
-                    <label>Name <input type="text" name="name1" value="Employee One" required/></label>
-                    <label>Amount <input type="number" name="amount1" step="0.01" min="0.01" value="900.00" required/></label>
-                </fieldset>
-                <fieldset>
-                    <legend>Line 2 (optional)</legend>
-                    <label>IBAN <input type="text" name="iban2" value="CY11EMPLOYEE0000002"/></label>
-                    <label>Name <input type="text" name="name2" value="Employee Two"/></label>
-                    <label>Amount <input type="number" name="amount2" step="0.01" min="0.01" value="850.00"/></label>
-                </fieldset>
-                <label>Rail
-                    <select name="rail">
-                        <option value="SEPA">SEPA</option>
-                        <option value="INTERNAL">INTERNAL</option>
-                    </select>
-                </label>
-                <button type="submit" class="btn">Run batch</button>
-            </form>
-        </section>
-    </div>
-</div>
-
-<footer class="footer">
-    <span>MERIDIAN — a demo bank. Payments are screened by <strong>Diakrisis</strong> before they execute.</span>
-    <span>Decision API via gateway <code>:8080</code></span>
-</footer>
 </body>
 </html>

@@ -9,6 +9,7 @@ public record Payee(
         String accountId,
         String cpKey,
         String iban,
+        String bic,
         String displayName,
         String resolvedName,
         long createdEpochMs

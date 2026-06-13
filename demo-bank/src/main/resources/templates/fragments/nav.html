@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- Shared sidebar. Usage: th:replace="~{fragments/nav :: sidebar(${navActive})}" -->
+<aside class="sidebar" th:fragment="sidebar(active)">
+    <div class="side-brand">
+        <span class="mark">Mer<em>i</em>dian</span>
+        <span class="tag">Private Bank</span>
+    </div>
+
+    <nav class="side-nav">
+        <a th:href="@{/dashboard}" th:classappend="${active} == 'dashboard' ? 'on' : ''">
+            <span class="ic">▤</span> Dashboard</a>
+        <a th:href="@{/accounts/{id}(id=${ownerAccounts != null and !ownerAccounts.isEmpty() ? ownerAccounts[0].id : 'acc-A'})}"
+           th:classappend="${active} == 'accounts' ? 'on' : ''">
+            <span class="ic">◳</span> Accounts</a>
+        <a th:href="@{/pay}" th:classappend="${active} == 'pay' ? 'on' : ''">
+            <span class="ic">↗</span> Payments</a>
+        <a th:href="@{/payees}" th:classappend="${active} == 'payees' ? 'on' : ''">
+            <span class="ic">☰</span> Payees</a>
+        <a th:href="@{/payroll}" th:classappend="${active} == 'payroll' ? 'on' : ''">
+            <span class="ic">⤓</span> Payroll</a>
+        <a th:href="@{/activity}" th:classappend="${active} == 'activity' ? 'on' : ''">
+            <span class="ic">≣</span> Activity</a>
+    </nav>
+
+    <div class="side-foot">
+        <span class="trust-chip sm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+            Secured by Diakrisis
+        </span>
+        <div class="side-user">
+            <span class="who">Signed in as<br/><strong th:text="${customer}">customer-A</strong></span>
+            <a class="btn ghost sm" th:href="@{/sign-out}">Sign out</a>
+        </div>
+    </div>
+</aside>
+</body>
+</html>

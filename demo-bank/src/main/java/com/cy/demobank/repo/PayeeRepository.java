@@ -17,6 +17,7 @@ public class PayeeRepository {
             rs.getString("account_id"),
             rs.getString("cp_key"),
             rs.getString("iban"),
+            rs.getString("bic"),
             rs.getString("display_name"),
             rs.getString("resolved_name"),
             rs.getLong("created_epoch_ms"));
@@ -44,10 +45,10 @@ public class PayeeRepository {
 
     public void insert(Payee payee) {
         jdbc.update("""
-                INSERT INTO payees(account_id, cp_key, iban, display_name, resolved_name, created_epoch_ms)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO payees(account_id, cp_key, iban, bic, display_name, resolved_name, created_epoch_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                payee.accountId(), payee.cpKey(), payee.iban(), payee.displayName(),
+                payee.accountId(), payee.cpKey(), payee.iban(), payee.bic(), payee.displayName(),
                 payee.resolvedName(), payee.createdEpochMs());
     }
 

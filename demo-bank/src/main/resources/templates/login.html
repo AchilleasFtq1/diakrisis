@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Meridian — sign in</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" th:href="@{/styles.css}"/>
+</head>
+<body class="login-page">
+<div class="login-wrap">
+    <div class="login-brand">
+        <span class="mark">Mer<em>i</em>dian</span>
+        <span class="tag">Private Bank</span>
+    </div>
+    <h1 class="login-h1">Welcome back.</h1>
+    <p class="login-sub">Choose a profile to sign in. Every payment you make is screened
+        <strong>live</strong> by Diakrisis before it moves.</p>
+
+    <div class="login-list">
+        <form class="login-card" method="post" th:action="@{/sign-in}" th:each="acct : ${accounts}">
+            <input type="hidden" name="customer" th:value="${acct.ownerUser}"/>
+            <div class="avatar" th:text="${#strings.toUpperCase(#strings.substring(acct.ownerUser,9,10))}">A</div>
+            <div class="who">
+                <strong th:text="${acct.ownerUser}">customer-A</strong>
+                <span th:text="${acct.displayName}">Demo Retail Account A</span>
+            </div>
+            <button type="submit" class="btn">Sign in →</button>
+        </form>
+    </div>
+
+    <p class="login-foot">
+        <span class="trust-chip sm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+            Secured by Diakrisis
+        </span>
+    </p>
+</div>
+</body>
+</html>

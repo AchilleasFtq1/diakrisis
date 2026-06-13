@@ -337,6 +337,157 @@ dl.facts dd.audit, dl.facts dd code { font-family: var(--mono); font-size: .85re
 }
 .sca-hint { font-size: .85rem; color: var(--ink-soft); }
 
+/* ================================================================= APP SHELL (sidebar + main) */
+.app { display: flex; min-height: 100vh; align-items: stretch; }
+.sidebar {
+    width: 250px; flex-shrink: 0;
+    background: linear-gradient(180deg, var(--pine) 0%, var(--pine-deep) 100%);
+    color: #eef3ef;
+    display: flex; flex-direction: column;
+    padding: 1.6rem 1.1rem;
+    position: sticky; top: 0; height: 100vh;
+}
+.side-brand { padding: 0 .6rem 1.4rem; border-bottom: 1px solid rgba(255,255,255,.12); }
+.side-brand .mark { display: block; font-family: var(--display); font-weight: 600; font-size: 1.5rem; letter-spacing: .12em; text-transform: uppercase; color: #fff; }
+.side-brand .mark em { color: var(--gold); font-style: normal; }
+.side-brand .tag { font-size: .62rem; letter-spacing: .22em; text-transform: uppercase; color: rgba(238,243,239,.6); font-weight: 600; }
+.side-nav { display: flex; flex-direction: column; gap: .15rem; margin-top: 1.2rem; flex: 1; }
+.side-nav a {
+    display: flex; align-items: center; gap: .7rem;
+    padding: .65rem .8rem; border-radius: 10px;
+    color: rgba(238,243,239,.82); font-weight: 600; font-size: .92rem;
+    transition: background .14s ease, color .14s ease;
+}
+.side-nav a .ic { width: 1.1rem; text-align: center; opacity: .8; font-size: .95rem; }
+.side-nav a:hover { background: rgba(255,255,255,.08); color: #fff; }
+.side-nav a.on { background: rgba(255,255,255,.14); color: #fff; }
+.side-foot { border-top: 1px solid rgba(255,255,255,.12); padding-top: 1rem; display: flex; flex-direction: column; gap: .9rem; }
+.side-user { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.side-user .who { font-size: .78rem; color: rgba(238,243,239,.7); line-height: 1.3; }
+.side-user .who strong { color: #fff; font-family: var(--mono); font-size: .85rem; }
+.trust-chip.sm { padding: .3rem .55rem; font-size: .62rem; background: rgba(169,132,62,.18); border-color: rgba(169,132,62,.5); color: var(--gold); }
+
+.main { flex: 1; min-width: 0; padding: clamp(1.4rem, 3.5vw, 2.6rem) clamp(1.2rem, 4vw, 3rem); max-width: 1100px; }
+.main-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.8rem; flex-wrap: wrap; }
+.main-head h1 { font-family: var(--display); font-weight: 500; font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.05; letter-spacing: -.01em; margin: .1rem 0 0; }
+.main > * { animation: rise .5s cubic-bezier(.2,.7,.2,1) both; }
+.main > *:nth-child(3) { animation-delay: .05s; }
+.main > *:nth-child(4) { animation-delay: .1s; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: .9rem; }
+.panel-head h2 { margin: 0; }
+.link { font-weight: 600; font-size: .88rem; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.2rem; align-items: start; }
+.narrow { max-width: 640px; }
+
+/* balance cards (dashboard + account) */
+.acct-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.2rem; margin-bottom: 1.8rem; }
+.balance-card {
+    position: relative; overflow: hidden;
+    border-radius: var(--radius); padding: 1.5rem 1.6rem; color: #f4f1ea;
+    background: radial-gradient(120% 140% at 92% 8%, rgba(169,132,62,.4), transparent 55%), linear-gradient(150deg, var(--pine) 0%, var(--pine-deep) 80%);
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: .15rem;
+}
+.balance-card.wide { margin-bottom: 1.8rem; }
+.bc-label { font-size: .68rem; letter-spacing: .2em; text-transform: uppercase; color: rgba(244,241,234,.72); font-weight: 700; }
+.bc-amount { font-family: var(--display); font-weight: 500; font-size: 2.6rem; line-height: 1.05; letter-spacing: -.02em; display: flex; align-items: baseline; gap: .4rem; }
+.bc-amount .cur { font-size: .34em; letter-spacing: .12em; color: rgba(244,241,234,.7); font-family: var(--sans); font-weight: 600; }
+.bc-meta { font-size: .82rem; color: rgba(244,241,234,.78); margin-top: .3rem; }
+.bc-meta code { font-family: var(--mono); color: #f4f1ea; }
+.balance-card .btn { margin-top: 1rem; align-self: flex-start; background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.25); color: #fff; }
+.balance-card .btn:hover { background: rgba(255,255,255,.26); }
+
+/* verdict pills in ledgers */
+.vpill { display: inline-block; padding: .15rem .55rem; border-radius: 999px; font-size: .7rem; font-weight: 700; letter-spacing: .03em; }
+.vpill.allow { background: var(--ok-tint); color: var(--ok); }
+.vpill.confirm { background: var(--warn-tint); color: var(--warn); }
+.vpill.hold { background: var(--hold-tint); color: var(--hold); }
+.vpill.block { background: var(--block-tint); color: var(--block); }
+.vpill.require_approval { background: var(--gold-tint); color: #7c5e22; }
+.typology.sm { font-size: .66rem; padding: .05rem .4rem; }
+
+.filespec { background: var(--ink); color: #d7e7dd; font-family: var(--mono); font-size: .8rem; line-height: 1.6; padding: .9rem 1.1rem; border-radius: var(--radius-sm); overflow-x: auto; margin: .8rem 0 1rem; }
+input[type="file"] { padding: .5rem; background: var(--paper-2); cursor: pointer; }
+
+/* ================================================================= LOGIN */
+.login-page { display: grid; place-items: center; padding: 2rem 1.2rem; }
+.login-wrap { width: 100%; max-width: 460px; }
+.login-brand { text-align: center; margin-bottom: 1.6rem; }
+.login-brand .mark { display: block; font-family: var(--display); font-weight: 600; font-size: 2rem; letter-spacing: .14em; text-transform: uppercase; }
+.login-brand .mark em { color: var(--pine); font-style: normal; }
+.login-brand .tag { font-size: .66rem; letter-spacing: .24em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+.login-h1 { font-family: var(--display); font-weight: 500; font-size: 2.2rem; text-align: center; margin: .4rem 0 .3rem; letter-spacing: -.01em; }
+.login-sub { text-align: center; color: var(--ink-soft); margin: 0 0 1.6rem; }
+.login-list { display: flex; flex-direction: column; gap: .8rem; }
+.login-card {
+    display: flex; align-items: center; gap: 1rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow-sm); padding: 1rem 1.2rem;
+    transition: box-shadow .16s ease, transform .16s ease, border-color .16s ease;
+}
+.login-card:hover { box-shadow: var(--shadow); transform: translateY(-2px); border-color: #d7cdba; }
+.login-card .avatar {
+    width: 2.6rem; height: 2.6rem; flex-shrink: 0; border-radius: 50%;
+    display: grid; place-items: center; font-family: var(--display); font-weight: 600; font-size: 1.2rem;
+    background: var(--pine-tint); color: var(--pine-deep);
+}
+.login-card .who { flex: 1; display: flex; flex-direction: column; line-height: 1.3; }
+.login-card .who strong { font-family: var(--mono); font-size: .9rem; }
+.login-card .who span { font-size: .82rem; color: var(--ink-soft); }
+.login-card .btn { margin-top: 0; }
+.login-foot { text-align: center; margin-top: 1.6rem; }
+
+/* ================================================================= STATUS PILLS (customer-facing) */
+.status-pill { display: inline-block; padding: .18rem .6rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .03em; }
+.status-pill.sent     { background: var(--ok-tint);    color: var(--ok); }
+.status-pill.pending  { background: var(--warn-tint);  color: var(--warn); }
+.status-pill.paused   { background: var(--hold-tint);  color: var(--hold); }
+.status-pill.approval { background: var(--gold-tint);  color: #7c5e22; }
+.status-pill.declined { background: var(--block-tint); color: var(--block); }
+.status-pill.lg { font-size: .82rem; padding: .35rem .9rem; margin-top: 1rem; }
+
+/* ================================================================= CUSTOMER RESULT HERO */
+.result {
+    text-align: center; padding: 2.4rem 1.6rem 2rem; margin-bottom: 1.4rem;
+    background: var(--card); border: 1px solid var(--line); border-top: 5px solid var(--ink-faint);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.result.sent     { border-top-color: var(--ok); }
+.result.pending  { border-top-color: var(--warn); }
+.result.paused   { border-top-color: var(--hold); }
+.result.approval { border-top-color: var(--gold); }
+.result.declined { border-top-color: var(--block); }
+.result-icon {
+    width: 4rem; height: 4rem; margin: 0 auto 1rem; border-radius: 50%;
+    display: grid; place-items: center; font-size: 1.9rem; line-height: 1;
+    background: var(--paper);
+}
+.result.sent     .result-icon { background: var(--ok-tint);    color: var(--ok); }
+.result.pending  .result-icon { background: var(--warn-tint);  color: var(--warn); }
+.result.paused   .result-icon { background: var(--hold-tint);  color: var(--hold); }
+.result.approval .result-icon { background: var(--gold-tint);  color: #7c5e22; }
+.result.declined .result-icon { background: var(--block-tint); color: var(--block); }
+.result-headline { font-family: var(--display); font-weight: 500; font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.1; margin: 0 0 .5rem; letter-spacing: -.01em; }
+.result-body { color: var(--ink-soft); max-width: 52ch; margin: 0 auto; }
+.receipt .facts { max-width: 520px; }
+
+/* ================================================================= PAYMENTS HUB TILES */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.2rem; }
+.tile {
+    display: flex; flex-direction: column; gap: .4rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow-sm); padding: 1.6rem 1.5rem; color: var(--ink);
+    transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+}
+.tile:hover { box-shadow: var(--shadow); transform: translateY(-3px); border-color: var(--pine); color: var(--ink); }
+.tile-ic {
+    width: 2.8rem; height: 2.8rem; border-radius: 12px; margin-bottom: .5rem;
+    display: grid; place-items: center; font-size: 1.4rem;
+    background: var(--pine-tint); color: var(--pine-deep);
+}
+.tile-title { font-family: var(--display); font-weight: 500; font-size: 1.25rem; }
+.tile-sub { color: var(--ink-soft); font-size: .9rem; }
+
 /* ----------------------------------------------------------------- account picker (index) */
 .account-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.2rem; }
 .acct-card {

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Meridian — pay someone new</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" th:href="@{/styles.css}"/>
+</head>
+<body>
+<div class="app">
+    <div th:replace="~{fragments/nav :: sidebar(${navActive})}"></div>
+    <main class="main">
+        <p class="crumb"><a th:href="@{/pay}">← Payments</a></p>
+        <header class="main-head"><div><p class="eyebrow">SEPA Credit Transfer</p><h1>Pay someone new</h1></div></header>
+
+        <section class="card narrow">
+            <form method="post" th:action="@{/pay}">
+                <label>From account
+                    <select name="account">
+                        <option th:each="a : ${accounts}" th:value="${a.id}"
+                                th:selected="${a.id} == ${selectedAccount}"
+                                th:text="${a.displayName + ' (' + a.id + ')'}">acc-A</option>
+                    </select>
+                </label>
+                <label>Beneficiary name
+                    <input type="text" name="beneficiaryName" placeholder="e.g. Safe Account Ltd" required/></label>
+                <label>IBAN
+                    <input type="text" name="iban" value="CY99 0020 0123 0000 0000 0123 4567" required/></label>
+                <label>BIC / SWIFT
+                    <input type="text" name="bic" value="BCYPCY2NXXX" maxlength="11"/></label>
+                <label>Amount (EUR)
+                    <input type="number" name="amount" step="0.01" min="0.01" value="4850.00" required/></label>
+                <label>Payment reference
+                    <input type="text" name="reference" maxlength="140" placeholder="(optional)"/></label>
+                <label>Scheme
+                    <select name="rail"><option>SEPA</option><option>SEPA Instant</option><option value="SWIFT">SWIFT</option></select></label>
+                <button type="submit" class="btn">Review &amp; send</button>
+            </form>
+        </section>
+    </main>
+</div>
+</body>
+</html>
