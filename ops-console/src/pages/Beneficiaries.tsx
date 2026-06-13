@@ -4,7 +4,7 @@ import { Network, AlertTriangle } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHead } from '../components/Layout';
 import { Panel, Pagination, SearchInput } from '../components/widgets';
-import { Mono } from '../components/primitives';
+import { Mono, ColHint } from '../components/primitives';
 import { euro, timeAgo } from '../lib/format';
 
 const PAGE_SIZE = 15;
@@ -66,14 +66,14 @@ export default function Beneficiaries() {
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="text-left font-mono text-[10px] tracking-[0.08em] uppercase text-muted border-b border-line">
-                  <th className="py-2 pr-3 font-medium">Beneficiary</th>
-                  <th className="py-2 pr-3 font-medium">IBAN / key</th>
-                  <th className="py-2 pr-3 font-medium text-right">Fan-in</th>
-                  <th className="py-2 pr-3 font-medium text-right">Flags</th>
-                  <th className="py-2 pr-3 font-medium">Worst outcome</th>
-                  <th className="py-2 pr-3 font-medium text-right">Pays</th>
-                  <th className="py-2 pr-3 font-medium text-right">Mean</th>
-                  <th className="py-2 pr-3 font-medium">Last flagged</th>
+                  <th className="py-2 pr-3 font-medium">Beneficiary<ColHint text="The payee's resolved name, when it has a payment-history baseline (else — unnamed —)." /></th>
+                  <th className="py-2 pr-3 font-medium">IBAN / key<ColHint text="The beneficiary's IBAN, or the engine's internal counterparty key." /></th>
+                  <th className="py-2 pr-3 font-medium text-right">Fan-in<ColHint text="Number of DISTINCT accounts that have paid this beneficiary. High fan-in onto a fresh payee is the mule_fan_out tell." /></th>
+                  <th className="py-2 pr-3 font-medium text-right">Flags<ColHint text="How many times this beneficiary was flagged (HELD / BLOCKED / cancelled-hold) across all accounts." /></th>
+                  <th className="py-2 pr-3 font-medium">Worst outcome<ColHint text="The most severe verdict this beneficiary has ever attracted." /></th>
+                  <th className="py-2 pr-3 font-medium text-right">Pays<ColHint text="Total payments to this beneficiary across accounts (from baseline history)." /></th>
+                  <th className="py-2 pr-3 font-medium text-right">Mean<ColHint text="Average payment amount to this beneficiary." /></th>
+                  <th className="py-2 pr-3 font-medium">Last flagged<ColHint text="When this beneficiary was most recently flagged." /></th>
                 </tr>
               </thead>
               <tbody>

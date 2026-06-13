@@ -5,7 +5,7 @@ import { api, ApiError } from '../lib/api';
 import { loadSession } from '../lib/auth';
 import { PageHead } from '../components/Layout';
 import { Panel, Pagination, SearchInput } from '../components/widgets';
-import { Mono } from '../components/primitives';
+import { Mono, ColHint } from '../components/primitives';
 import type { Role, UserView } from '../lib/types';
 
 const ROLES: Role[] = ['CUSTOMER', 'APPROVER', 'OPS', 'ADMIN'];
@@ -225,11 +225,11 @@ export default function AdminUsers() {
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="text-left font-mono text-[10px] tracking-[0.08em] uppercase text-muted border-b border-line">
-                  <th className="py-2 pr-3 font-medium">User</th>
-                  <th className="py-2 pr-3 font-medium">Role</th>
-                  <th className="py-2 pr-3 font-medium">Account</th>
-                  <th className="py-2 pr-3 font-medium">Status</th>
-                  <th className="py-2 pr-3 font-medium text-right">Manage</th>
+                  <th className="py-2 pr-3 font-medium">User<ColHint text="The login username (the user's identity key)." /></th>
+                  <th className="py-2 pr-3 font-medium">Role<ColHint text="CUSTOMER, APPROVER, OPS or ADMIN — determines what the user can access." /></th>
+                  <th className="py-2 pr-3 font-medium">Account<ColHint text="The bank account bound to a CUSTOMER user (blank for staff roles)." /></th>
+                  <th className="py-2 pr-3 font-medium">Status<ColHint text="Whether the account is enabled. Disabled users cannot log in." /></th>
+                  <th className="py-2 pr-3 font-medium text-right">Manage<ColHint text="Edit (username, role, account, password, status) or delete the user." /></th>
                 </tr>
               </thead>
               <tbody>

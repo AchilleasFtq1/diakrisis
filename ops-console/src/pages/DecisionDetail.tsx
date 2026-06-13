@@ -5,7 +5,7 @@ import { Ban, Check, Cpu, CornerUpRight, Globe, Lock, MonitorSmartphone, Network
 import { api, type LifecycleAction } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { loadSession } from '../lib/auth';
-import { OutcomePill, NeedsReview, Mono } from '../components/primitives';
+import { OutcomePill, NeedsReview, Mono, ColHint } from '../components/primitives';
 import { KillChainTimeline } from '../components/KillChainTimeline';
 import { euro } from '../lib/format';
 import type { DecisionDetail as DecisionDetailType, Outcome, Signal } from '../lib/types';
@@ -414,7 +414,7 @@ export default function DecisionDetail() {
             {signals.length > 0 ? (
               <>
                 <div className="grid grid-cols-[minmax(140px,180px)_70px_1fr_48px] gap-2.5 font-mono text-[9px] tracking-[0.06em] uppercase text-muted py-2.5 border-b border-[#1c232c]">
-                  <span>signal id</span><span>value</span><span>weight × contribution</span><span className="text-right">+pts</span>
+                  <span>signal id<ColHint text="The signal code. See the Reference page for what every code means." /></span><span>value<ColHint text="The signal's raw value in 0–1 (how strongly it fired)." /></span><span>weight × contribution<ColHint text="The signal's weight, and its bar = its points contributed to the score." /></span><span className="text-right">+pts<ColHint text="Points this signal added to (or, if negative, removed from) the risk score." /></span>
                 </div>
                 {material.map((s) => <SignalRow key={s.id} s={s} max={maxContribution} />)}
               </>
@@ -437,9 +437,9 @@ export default function DecisionDetail() {
               <table className="w-full text-[12px]">
                 <thead>
                   <tr className="text-left font-mono text-[9px] tracking-[0.06em] uppercase text-muted border-b border-[#1c232c]">
-                    <th className="py-2 pr-3 font-medium">Line</th>
-                    <th className="py-2 pr-3 font-medium">Outcome</th>
-                    <th className="py-2 pr-3 font-medium">Top signals</th>
+                    <th className="py-2 pr-3 font-medium">Line<ColHint text="The batch line item id." /></th>
+                    <th className="py-2 pr-3 font-medium">Outcome<ColHint text="Per-line verdict — flagged lines are quarantined (HELD) while clean lines proceed." /></th>
+                    <th className="py-2 pr-3 font-medium">Top signals<ColHint text="The signals that drove this line's verdict, biggest contribution first." /></th>
                   </tr>
                 </thead>
                 <tbody>

@@ -80,9 +80,10 @@ export default function AccountPosture() {
               label="Funds freed 72h"
               value={p ? euro(p.funds_freed_eur72h) : '—'}
               accent={p && p.funds_freed_eur72h > 0 ? '#DB6D28' : undefined}
+              hint="Money freed by term-deposit breaks in the last 72h. Feeds the K1 signal when this account then sends money out."
             />
-            <StatCard label="Limit raised 72h" value={p ? euro(p.limit_raised_eur72h) : '—'} />
-            <StatCard label="New payees 72h" value={p?.beneficiary_add_count72h ?? '—'} />
+            <StatCard label="Limit raised 72h" value={p ? euro(p.limit_raised_eur72h) : '—'} hint="Daily/transfer limit increases in the last 72h. Feeds the K2 signal." />
+            <StatCard label="New payees 72h" value={p?.beneficiary_add_count72h ?? '—'} hint="New beneficiaries added in the last 72h. Feeds the K3 signal." />
           </div>
 
           {p && p.funds_freed_eur72h > 0 && (

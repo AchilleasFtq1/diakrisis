@@ -6,7 +6,7 @@ import type { ComponentType } from 'react';
 import { api } from '../lib/api';
 import { PageHead } from '../components/Layout';
 import { Panel, Pagination, StatCard } from '../components/widgets';
-import { Mono } from '../components/primitives';
+import { Mono, ColHint } from '../components/primitives';
 import { euro, timeAgo } from '../lib/format';
 
 const PAGE_SIZE = 15;
@@ -98,11 +98,11 @@ export default function Outcomes() {
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="text-left font-mono text-[10px] tracking-[0.08em] uppercase text-muted border-b border-line">
-                  <th className="py-2 pr-3 font-medium">When</th>
-                  <th className="py-2 pr-3 font-medium">Outcome</th>
-                  <th className="py-2 pr-3 font-medium text-right">Amount</th>
-                  <th className="py-2 pr-3 font-medium">Account</th>
-                  <th className="py-2 pr-3 font-medium">Signal pattern</th>
+                  <th className="py-2 pr-3 font-medium">When<ColHint text="When the outcome was recorded." /></th>
+                  <th className="py-2 pr-3 font-medium">Outcome<ColHint text="CONFIRMED_SAVE (a true catch), FALSE_POSITIVE (hold on a legit pay), or APPROVED (cleared four-eyes)." /></th>
+                  <th className="py-2 pr-3 font-medium text-right">Amount<ColHint text="Money amount of the action this outcome resolved." /></th>
+                  <th className="py-2 pr-3 font-medium">Account<ColHint text="The account the action belonged to." /></th>
+                  <th className="py-2 pr-3 font-medium">Signal pattern<ColHint text="The firing-signal fingerprint recorded at resolution — the positive/negative training example." /></th>
                 </tr>
               </thead>
               <tbody>

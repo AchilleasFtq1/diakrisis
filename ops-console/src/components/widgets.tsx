@@ -7,15 +7,19 @@ export function StatCard({
   value,
   sub,
   accent,
+  hint,
 }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   accent?: string;
+  hint?: string;
 }) {
   return (
     <div className="bg-panel border border-line rounded-xl p-4">
-      <div className="font-mono text-[10px] tracking-[0.1em] uppercase text-muted mb-2">{label}</div>
+      <div className="font-mono text-[10px] tracking-[0.1em] uppercase text-muted mb-2" title={hint}>
+        {label}{hint && <span className="text-muted/50 ml-1 cursor-help">ⓘ</span>}
+      </div>
       <div className="font-mono text-[26px] font-semibold leading-none" style={accent ? { color: accent } : undefined}>
         {value}
       </div>

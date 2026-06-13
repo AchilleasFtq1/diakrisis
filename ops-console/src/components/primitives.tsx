@@ -1,4 +1,17 @@
+import { Info } from 'lucide-react';
 import type { Outcome } from '../lib/types';
+
+/**
+ * A small ⓘ cue next to a column header that reveals a plain-language explanation on hover. Uses the
+ * native title tooltip so it never clips inside the tables' overflow containers.
+ */
+export function ColHint({ text }: { text: string }) {
+  return (
+    <span title={text} className="inline-flex items-center align-middle cursor-help">
+      <Info size={10} className="text-muted/60 hover:text-cyan ml-1 transition-colors" />
+    </span>
+  );
+}
 
 /* Outcome pill — full literal class strings (Tailwind v4 scans these). */
 const PILL: Record<Outcome, string> = {
