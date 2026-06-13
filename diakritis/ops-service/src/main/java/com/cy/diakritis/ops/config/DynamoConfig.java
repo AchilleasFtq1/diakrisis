@@ -2,6 +2,8 @@ package com.cy.diakritis.ops.config;
 
 import com.cy.diakritis.common.persistence.AccountPostureItem;
 import com.cy.diakritis.common.persistence.CaseItem;
+import com.cy.diakritis.common.persistence.CounterpartyBaselineItem;
+import com.cy.diakritis.common.persistence.CounterpartyReputationItem;
 import com.cy.diakritis.common.persistence.DecisionItem;
 import com.cy.diakritis.common.persistence.DynamoConfigSupport;
 import com.cy.diakritis.common.persistence.DynamoProperties;
@@ -37,7 +39,9 @@ public class DynamoConfig {
                     TableSchema.of(Tables.CASES, "pk", "sk"),
                     TableSchema.of(Tables.OUTCOMES, "pk", "sk"),
                     TableSchema.of(Tables.ACCOUNT_POSTURE, "pk", "sk"),
-                    TableSchema.of(Tables.OBSERVATIONS, "pk", "sk")));
+                    TableSchema.of(Tables.OBSERVATIONS, "pk", "sk"),
+                    TableSchema.of(Tables.COUNTERPARTY_REPUTATION, "pk", "sk"),
+                    TableSchema.of(Tables.COUNTERPARTY_BASELINE, "pk", "sk")));
         }
         return client;
     }
@@ -75,5 +79,17 @@ public class DynamoConfig {
     DynamoDbTable<ObservationItem> observationTable(DynamoDbEnhancedClient enhanced) {
         return enhanced.table(Tables.OBSERVATIONS,
                 software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(ObservationItem.class));
+    }
+
+    @Bean
+    DynamoDbTable<CounterpartyReputationItem> reputationTable(DynamoDbEnhancedClient enhanced) {
+        return enhanced.table(Tables.COUNTERPARTY_REPUTATION,
+                software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(CounterpartyReputationItem.class));
+    }
+
+    @Bean
+    DynamoDbTable<CounterpartyBaselineItem> baselineTable(DynamoDbEnhancedClient enhanced) {
+        return enhanced.table(Tables.COUNTERPARTY_BASELINE,
+                software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(CounterpartyBaselineItem.class));
     }
 }

@@ -5,13 +5,17 @@ import com.cy.diakritis.common.dto.LifecycleState;
 import com.cy.diakritis.common.dto.Outcome;
 import com.cy.diakritis.common.persistence.AccountPostureItem;
 import com.cy.diakritis.common.persistence.CaseItem;
+import com.cy.diakritis.common.persistence.CounterpartyBaselineItem;
+import com.cy.diakritis.common.persistence.CounterpartyReputationItem;
 import com.cy.diakritis.common.persistence.DecisionItem;
 import com.cy.diakritis.common.persistence.ObservationItem;
 import com.cy.diakritis.common.persistence.OutcomeItem;
 import com.cy.diakritis.ops.web.dto.AccountView;
 import com.cy.diakritis.ops.web.dto.ApprovalEntry;
 import com.cy.diakritis.ops.web.dto.CountersView;
+import com.cy.diakritis.ops.web.dto.CounterpartyView;
 import com.cy.diakritis.ops.web.dto.FeedEntry;
+import com.cy.diakritis.ops.web.dto.OutcomeView;
 import com.cy.diakritis.ops.web.dto.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,8 +31,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -56,16 +62,22 @@ public class OpsService {
     private final DynamoDbTable<OutcomeItem> outcomeTable;
     private final DynamoDbTable<AccountPostureItem> postureTable;
     private final DynamoDbTable<ObservationItem> observationTable;
+    private final DynamoDbTable<CounterpartyReputationItem> reputationTable;
+    private final DynamoDbTable<CounterpartyBaselineItem> baselineTable;
     private final JsonMapper jsonMapper;
 
     public OpsService(DynamoDbTable<DecisionItem> decisionTable, DynamoDbTable<CaseItem> caseTable,
                       DynamoDbTable<OutcomeItem> outcomeTable, DynamoDbTable<AccountPostureItem> postureTable,
-                      DynamoDbTable<ObservationItem> observationTable, JsonMapper jsonMapper) {
+                      DynamoDbTable<ObservationItem> observationTable,
+                      DynamoDbTable<CounterpartyReputationItem> reputationTable,
+                      DynamoDbTable<CounterpartyBaselineItem> baselineTable, JsonMapper jsonMapper) {
         this.decisionTable = decisionTable;
         this.caseTable = caseTable;
         this.outcomeTable = outcomeTable;
         this.postureTable = postureTable;
         this.observationTable = observationTable;
+        this.reputationTable = reputationTable;
+        this.baselineTable = baselineTable;
         this.jsonMapper = jsonMapper;
     }
 
@@ -320,6 +332,9 @@ public class OpsService {
                         if (item.getEventTsEpochMs() > 0) {
                             node.put("event_ts", Instant.ofEpochMilli(item.getEventTsEpochMs()).toString());
                         }
+                        if (item.getHoldExpiresEpochMs() > 0) {
+                            node.put("hold_expires_at", Instant.ofEpochMilli(item.getHoldExpiresEpochMs()).toString());
+                        }
                     }
                     return tree;
                 } catch (JacksonException ex) {
@@ -381,6 +396,103 @@ public class OpsService {
         history.sort(Comparator.comparing(
                 (FeedEntry e) -> e.createdAt() == null ? Instant.EPOCH : e.createdAt()).reversed());
         return history;
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Counterparty (mule) intelligence.
+    // ------------------------------------------------------------------------------------------------
+
+    /**
+     * Flagged beneficiaries, most-flagged first. The reputation rows carry the flag history; the
+     * per-account baseline rows are joined in to recover the name/IBAN and the <em>fan-in</em> (distinct
+     * accounts that have paid the counterparty) — the signature of a mule collecting from many victims.
+     */
+    public Page<CounterpartyView> counterparties(int page, int size, String query) {
+        Map<String, Set<String>> accountsByKey = new HashMap<>();
+        Map<String, String> nameByKey = new HashMap<>();
+        Map<String, String> ibanByKey = new HashMap<>();
+        Map<String, long[]> payAggByKey = new HashMap<>(); // [payCount sum, max mean cents]
+        for (CounterpartyBaselineItem b : baselineTable.scan().items()) {
+            String key = b.getCounterpartyKey();
+            if (key == null) {
+                continue;
+            }
+            if (b.getAccountId() != null) {
+                accountsByKey.computeIfAbsent(key, k -> new HashSet<>()).add(b.getAccountId());
+            }
+            if (b.getResolvedName() != null) {
+                nameByKey.putIfAbsent(key, b.getResolvedName());
+            }
+            if (b.getCounterpartyIban() != null) {
+                ibanByKey.putIfAbsent(key, b.getCounterpartyIban());
+            }
+            payAggByKey.merge(key, new long[]{b.getPayCount(), b.getMeanAmountCents()},
+                    (a, c) -> new long[]{a[0] + c[0], Math.max(a[1], c[1])});
+        }
+
+        List<CounterpartyView> all = new ArrayList<>();
+        for (CounterpartyReputationItem r : reputationTable.scan().items()) {
+            String key = r.getCounterpartyKey();
+            if (key == null) {
+                continue;
+            }
+            long[] agg = payAggByKey.get(key);
+            all.add(new CounterpartyView(
+                    key,
+                    nameByKey.get(key),
+                    ibanByKey.get(key),
+                    r.getWorstOutcome(),
+                    r.getFlagCount(),
+                    r.getLastFlagEpochMs() > 0 ? Instant.ofEpochMilli(r.getLastFlagEpochMs()) : null,
+                    accountsByKey.getOrDefault(key, Set.of()).size(),
+                    agg == null ? 0 : agg[0],
+                    agg == null ? null : eurOf(agg[1])));
+        }
+        all.sort(Comparator.comparingLong(CounterpartyView::flagCount).reversed()
+                .thenComparing(Comparator.comparingInt(CounterpartyView::fanInAccounts).reversed()));
+
+        List<CounterpartyView> filtered = all.stream()
+                .filter(c -> counterpartyMatches(c, query))
+                .toList();
+        return Page.of(filtered, page, size);
+    }
+
+    private static boolean counterpartyMatches(CounterpartyView c, String query) {
+        if (query == null || query.isBlank()) {
+            return true;
+        }
+        StringBuilder hay = new StringBuilder();
+        appendIfPresent(hay, c.counterpartyKey());
+        appendIfPresent(hay, c.name());
+        appendIfPresent(hay, c.iban());
+        appendIfPresent(hay, c.worstOutcome());
+        return hay.toString().toLowerCase().contains(query.toLowerCase());
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Outcomes ("wins") board.
+    // ------------------------------------------------------------------------------------------------
+
+    /**
+     * Recorded outcomes, newest first — the money-protected catches and the false positives behind the
+     * counters. Optionally filtered to one outcome type (CONFIRMED_SAVE / FALSE_POSITIVE).
+     */
+    public Page<OutcomeView> outcomes(int page, int size, String type) {
+        List<OutcomeView> all = new ArrayList<>();
+        for (OutcomeItem o : outcomeTable.scan().items()) {
+            if (type != null && !type.isBlank() && !type.equalsIgnoreCase(o.getOutcome())) {
+                continue;
+            }
+            all.add(new OutcomeView(
+                    o.getEventId(),
+                    o.getAccountId(),
+                    o.getOutcome(),
+                    eurOf(o.getAmountCents()),
+                    o.getSignalPattern(),
+                    o.getEpochMs() > 0 ? Instant.ofEpochMilli(o.getEpochMs()) : null));
+        }
+        all.sort(Comparator.comparing((OutcomeView v) -> v.at() == null ? Instant.EPOCH : v.at()).reversed());
+        return Page.of(all, page, size);
     }
 
     // ------------------------------------------------------------------------------------------------

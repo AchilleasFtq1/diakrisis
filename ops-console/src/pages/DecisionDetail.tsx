@@ -1,12 +1,22 @@
 import type { ComponentType } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Cpu, Globe, MonitorSmartphone, Network, Radio, Smartphone } from 'lucide-react';
-import { api } from '../lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Ban, Check, Cpu, CornerUpRight, Globe, Lock, MonitorSmartphone, Network, Radio, Smartphone, X } from 'lucide-react';
+import { api, type LifecycleAction } from '../lib/api';
+import { ApiError } from '../lib/api';
+import { loadSession } from '../lib/auth';
 import { OutcomePill, NeedsReview, Mono } from '../components/primitives';
 import { KillChainTimeline } from '../components/KillChainTimeline';
 import { euro } from '../lib/format';
 import type { DecisionDetail as DecisionDetailType, Outcome, Signal } from '../lib/types';
+
+type ActionDef = { kind: LifecycleAction; label: string; icon: ComponentType<{ size?: number }>; tone: 'ok' | 'danger' | 'neutral'; disabled?: boolean; hint?: string };
+
+const TONE: Record<'ok' | 'danger' | 'neutral', string> = {
+  ok: 'text-ink bg-allow hover:bg-allow/90',
+  danger: 'text-block bg-block/10 border border-block/40 hover:bg-block/20',
+  neutral: 'text-cyan bg-cyan/10 border border-cyan/40 hover:bg-cyan/20',
+};
 
 /**
  * Per-event request context, persisted on the decision at scoring time, paired with the signal each
@@ -110,6 +120,48 @@ export default function DecisionDetail() {
 
   const latencyOk = d != null && d.latency_ms < 50;
   const stamp = d?.created_at ? new Date(d.created_at).toLocaleString('en-GB', { hour12: false }) : '—';
+  const batchItems = d?.items ?? [];
+
+  // --- lifecycle actions an analyst can drive from here ---
+  const qc = useQueryClient();
+  const session = loadSession();
+  const canApprove = session?.roles?.some((r) => r === 'APPROVER' || r === 'ADMIN') ?? false;
+  const isInitiator = !!session?.sub && session.sub === d?.initiator_sub;
+  const holdLocked = d?.hold_expires_at ? new Date(d.hold_expires_at).getTime() > Date.now() : false;
+
+  const act = useMutation({
+    mutationFn: (action: LifecycleAction) => api.act(id, action),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['decision', id] });
+      qc.invalidateQueries({ queryKey: ['feed'] });
+      qc.invalidateQueries({ queryKey: ['approvals'] });
+      qc.invalidateQueries({ queryKey: ['account'] });
+    },
+  });
+
+  const actions: ActionDef[] =
+    lifecycleState === 'HELD'
+      ? [
+          { kind: 'release', label: holdLocked ? 'Release (locked until hold expiry)' : 'Release — execute', icon: holdLocked ? Lock : CornerUpRight, tone: 'neutral', disabled: holdLocked, hint: holdLocked ? 'the cooling-off hold cannot be skipped early' : 'records a false positive' },
+          { kind: 'cancel', label: 'Cancel — block', icon: Ban, tone: 'danger', hint: 'records a confirmed save' },
+        ]
+      : lifecycleState === 'PENDING_APPROVAL' || lifecycleState === 'REVIEW'
+        ? [
+            { kind: 'approve', label: 'Approve', icon: Check, tone: 'ok', disabled: !canApprove || isInitiator, hint: isInitiator ? "four-eyes: can't approve your own action" : !canApprove ? 'requires APPROVER or ADMIN' : undefined },
+            { kind: 'reject', label: 'Reject', icon: X, tone: 'danger', disabled: !canApprove, hint: !canApprove ? 'requires APPROVER or ADMIN' : undefined },
+          ]
+        : [];
+
+  const actionError =
+    act.error instanceof ApiError
+      ? act.error.status === 409
+        ? 'Hold is still locked until its expiry — it cannot be released early.'
+        : act.error.status === 403
+          ? 'Not permitted (four-eyes self-approval, or APPROVER role required).'
+          : `Action failed (${act.error.status}).`
+      : act.error
+        ? 'Action failed.'
+        : null;
 
   return (
     <div>
@@ -137,6 +189,33 @@ export default function DecisionDetail() {
           {accountId ? `account ${accountId}` : 'account —'} · {d?.initiator_sub ?? '—'} · {stamp}
         </div>
       </div>
+
+      {/* action bar — drive the lifecycle from the console */}
+      {actions.length > 0 && (
+        <div className="border-b border-line bg-panel/60 px-6 py-2.5 flex items-center gap-3 flex-wrap">
+          <span className="font-mono text-[10px] uppercase tracking-wide text-muted">Actions</span>
+          {actions.map((a) => (
+            <button
+              key={a.kind}
+              onClick={() => act.mutate(a.kind)}
+              disabled={a.disabled || act.isPending}
+              title={a.hint}
+              className={`flex items-center gap-1.5 text-[12px] font-semibold rounded px-3 py-1.5 transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${TONE[a.tone]}`}
+            >
+              <a.icon size={13} /> {a.label}
+            </button>
+          ))}
+          {actions.some((a) => a.hint && !a.disabled) && (
+            <span className="font-mono text-[10.5px] text-muted">
+              {actions.find((a) => a.hint && !a.disabled)?.hint}
+            </span>
+          )}
+          {actionError && <span className="font-mono text-[11px] text-block ml-auto">{actionError}</span>}
+          {act.isSuccess && !act.isPending && (
+            <span className="font-mono text-[11px] text-allow ml-auto">Done — lifecycle updated.</span>
+          )}
+        </div>
+      )}
 
       <div className="px-6 py-5 flex flex-col gap-4">
         {/* KILL-CHAIN HERO — the hero of this screen */}
@@ -344,6 +423,56 @@ export default function DecisionDetail() {
             )}
           </div>
         </div>
+
+        {/* BATCH LINE BREAKDOWN — per-line results for a mass payment */}
+        {batchItems.length > 0 && (
+          <div className="bg-panel border border-line rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[13px] font-semibold text-fg">Batch lines</div>
+              <div className="font-mono text-[10px] text-muted">
+                {batchItems.length} lines · {batchItems.filter((it) => it.decision !== 'ALLOW').length} flagged
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="text-left font-mono text-[9px] tracking-[0.06em] uppercase text-muted border-b border-[#1c232c]">
+                    <th className="py-2 pr-3 font-medium">Line</th>
+                    <th className="py-2 pr-3 font-medium">Outcome</th>
+                    <th className="py-2 pr-3 font-medium">Top signals</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batchItems.map((it) => {
+                    const top = (it.signals ?? [])
+                      .filter((s) => s.contribution !== 0)
+                      .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
+                      .slice(0, 4);
+                    return (
+                      <tr key={it.item_id} className="border-b border-line/50 last:border-0">
+                        <td className="py-2 pr-3"><Mono className="text-[11px] text-fg-2">{it.item_id}</Mono></td>
+                        <td className="py-2 pr-3"><OutcomePill outcome={it.decision as Outcome} /></td>
+                        <td className="py-2 pr-3">
+                          {top.length > 0 ? (
+                            <div className="flex gap-1 flex-wrap">
+                              {top.map((s) => (
+                                <span key={s.id} className="font-mono text-[10px] text-fg-2 bg-panel-2 border border-line rounded px-1.5 py-0.5">
+                                  {s.id} +{s.contribution.toFixed(0)}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* ROW: typologies | customer explanation */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

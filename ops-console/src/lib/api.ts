@@ -3,12 +3,17 @@ import type {
   AccountView,
   ApprovalEntry,
   Counters,
+  CounterpartyView,
   DecisionDetail,
   FeedEntry,
   Outcome,
+  OutcomeView,
   Page,
   Session,
 } from './types';
+
+/** Lifecycle actions an analyst can drive from the console (subset that fits OPS/APPROVER). */
+export type LifecycleAction = 'release' | 'cancel' | 'approve' | 'reject';
 
 export interface FeedParams {
   page?: number;
@@ -154,4 +159,14 @@ export const api = {
     ),
   approve: (id: string) => request<void>(`/actions/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
   reject: (id: string) => request<void>(`/actions/${encodeURIComponent(id)}/reject`, { method: 'POST' }),
+  act: (id: string, action: LifecycleAction) =>
+    request<unknown>(`/actions/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
+  counterparties: (params: { page?: number; size?: number; q?: string } = {}) =>
+    request<Page<CounterpartyView>>(
+      `/ops/counterparties${queryString({ page: params.page, size: params.size, q: params.q })}`,
+    ),
+  outcomes: (params: { page?: number; size?: number; type?: string } = {}) =>
+    request<Page<OutcomeView>>(
+      `/ops/outcomes${queryString({ page: params.page, size: params.size, type: params.type })}`,
+    ),
 };

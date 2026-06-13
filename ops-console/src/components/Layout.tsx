@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Activity, ShieldCheck, Users, LogOut, Radar } from 'lucide-react';
+import { Activity, Award, Network, ShieldCheck, Users, LogOut, Radar } from 'lucide-react';
 import { clearSession, loadSession } from '../lib/auth';
 import type { ReactNode } from 'react';
 
@@ -7,6 +7,8 @@ const NAV = [
   { to: '/overview', label: 'Overview', icon: Activity },
   { to: '/approvals', label: 'Approvals', icon: ShieldCheck },
   { to: '/accounts', label: 'Accounts', icon: Users },
+  { to: '/beneficiaries', label: 'Beneficiaries', icon: Network },
+  { to: '/outcomes', label: 'Outcomes', icon: Award },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {

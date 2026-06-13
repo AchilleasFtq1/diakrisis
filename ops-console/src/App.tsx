@@ -7,6 +7,8 @@ import Overview from './pages/Overview';
 import DecisionDetail from './pages/DecisionDetail';
 import Approvals from './pages/Approvals';
 import AccountPosture from './pages/AccountPosture';
+import Beneficiaries from './pages/Beneficiaries';
+import Outcomes from './pages/Outcomes';
 
 function Protected({ children }: { children: ReactNode }) {
   return loadSession() ? <Layout>{children}</Layout> : <Navigate to="/login" replace />;
@@ -21,6 +23,8 @@ export function App() {
       <Route path="/approvals" element={<Protected><Approvals /></Protected>} />
       <Route path="/accounts" element={<Protected><AccountPosture /></Protected>} />
       <Route path="/accounts/:id" element={<Protected><AccountPosture /></Protected>} />
+      <Route path="/beneficiaries" element={<Protected><Beneficiaries /></Protected>} />
+      <Route path="/outcomes" element={<Protected><Outcomes /></Protected>} />
       <Route path="*" element={<Navigate to="/overview" replace />} />
     </Routes>
   );

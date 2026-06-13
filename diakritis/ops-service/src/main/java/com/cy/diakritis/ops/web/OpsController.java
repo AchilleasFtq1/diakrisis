@@ -6,7 +6,9 @@ import com.cy.diakritis.ops.service.OpsService;
 import com.cy.diakritis.ops.web.dto.AccountView;
 import com.cy.diakritis.ops.web.dto.ApprovalEntry;
 import com.cy.diakritis.ops.web.dto.CountersView;
+import com.cy.diakritis.ops.web.dto.CounterpartyView;
 import com.cy.diakritis.ops.web.dto.FeedEntry;
+import com.cy.diakritis.ops.web.dto.OutcomeView;
 import com.cy.diakritis.ops.web.dto.Page;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
@@ -48,7 +50,7 @@ public class OpsController {
             @RequestParam(name = "outcomes", required = false) List<String> outcomes,
             @RequestParam(name = "q", required = false) String query,
             HttpServletRequest request) {
-        currentUser.requireRole(request, Role.OPS, Role.APPROVER);
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER, Role.ADMIN);
         return opsService.feed(page, size, outcomes, query);
     }
 
@@ -56,7 +58,7 @@ public class OpsController {
             description = "Read-only aggregate counters over the decision store. OPS or APPROVER role.")
     @GetMapping("/counters")
     public CountersView counters(HttpServletRequest request) {
-        currentUser.requireRole(request, Role.OPS, Role.APPROVER);
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER, Role.ADMIN);
         return opsService.counters();
     }
 
@@ -70,7 +72,7 @@ public class OpsController {
             @RequestParam(name = "q", required = false) String query,
             @RequestParam(name = "initiator", required = false) String initiator,
             HttpServletRequest request) {
-        currentUser.requireRole(request, Role.OPS, Role.APPROVER);
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER, Role.ADMIN);
         return opsService.approvals(page, size, query, initiator);
     }
 
@@ -79,7 +81,7 @@ public class OpsController {
                     + "explanation, combined, latency). OPS or APPROVER role.")
     @GetMapping("/decisions/{id}")
     public JsonNode decision(@PathVariable("id") String eventId, HttpServletRequest request) {
-        currentUser.requireRole(request, Role.OPS, Role.APPROVER);
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER, Role.ADMIN);
         JsonNode decision = opsService.decision(eventId);
         if (decision == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No decision for event " + eventId);
@@ -92,7 +94,7 @@ public class OpsController {
                     + "decision window for one account — the kill-chain memory. OPS or APPROVER role.")
     @GetMapping("/accounts/{id}")
     public AccountView account(@PathVariable("id") String accountId, HttpServletRequest request) {
-        currentUser.requireRole(request, Role.OPS, Role.APPROVER);
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER, Role.ADMIN);
         return opsService.accountView(accountId);
     }
 
@@ -105,7 +107,33 @@ public class OpsController {
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "size", defaultValue = "10") int size,
             HttpServletRequest request) {
-        currentUser.requireRole(request, Role.OPS, Role.APPROVER);
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER, Role.ADMIN);
         return opsService.accountHistory(accountId, page, size);
+    }
+
+    @Operation(summary = "Flagged counterparties (mule intelligence)",
+            description = "Server-paged beneficiaries the engine has flagged, most-flagged first, with "
+                    + "fan-in (distinct paying accounts). Filterable by free text. OPS or APPROVER role.")
+    @GetMapping("/counterparties")
+    public Page<CounterpartyView> counterparties(
+            @RequestParam(name = "page", defaultValue = "1") int page,
+            @RequestParam(name = "size", defaultValue = "15") int size,
+            @RequestParam(name = "q", required = false) String query,
+            HttpServletRequest request) {
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER, Role.ADMIN);
+        return opsService.counterparties(page, size, query);
+    }
+
+    @Operation(summary = "Recorded outcomes (wins board)",
+            description = "Server-paged confirmed-saves and false-positives, newest first. Optionally "
+                    + "filtered by type (CONFIRMED_SAVE / FALSE_POSITIVE). OPS or APPROVER role.")
+    @GetMapping("/outcomes")
+    public Page<OutcomeView> outcomes(
+            @RequestParam(name = "page", defaultValue = "1") int page,
+            @RequestParam(name = "size", defaultValue = "15") int size,
+            @RequestParam(name = "type", required = false) String type,
+            HttpServletRequest request) {
+        currentUser.requireRole(request, Role.OPS, Role.APPROVER, Role.ADMIN);
+        return opsService.outcomes(page, size, type);
     }
 }

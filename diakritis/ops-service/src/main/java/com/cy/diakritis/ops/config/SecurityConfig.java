@@ -24,8 +24,9 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * <ul>
  *   <li>the docs surface ({@code /swagger-ui/**}, {@code /swagger-ui.html}, {@code /v3/api-docs/**})
  *       and {@code /actuator/health} are public.</li>
- *   <li>{@code /ops/**} requires one of {@code ROLE_OPS} / {@code ROLE_APPROVER} (the analyst roles);
- *       the controllers additionally assert the same constraint from the request principal.</li>
+ *   <li>{@code /ops/**} requires one of {@code ROLE_OPS} / {@code ROLE_APPROVER} (the analyst roles)
+ *       or {@code ROLE_ADMIN} (superuser); the controllers additionally assert the same constraint
+ *       from the request principal.</li>
  *   <li>everything else requires authentication.</li>
  * </ul>
  *
@@ -64,7 +65,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
-                        .requestMatchers("/ops/**").hasAnyRole("OPS", "APPROVER")
+                        .requestMatchers("/ops/**").hasAnyRole("OPS", "APPROVER", "ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(entryPoint)

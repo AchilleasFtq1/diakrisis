@@ -56,6 +56,34 @@ export interface Signal {
   detail: string | null;
 }
 
+/** One line of a batch (mass payment) decision. */
+export interface ItemResult {
+  item_id: string;
+  decision: Outcome | string;
+  signals?: Signal[] | null;
+}
+
+export interface CounterpartyView {
+  counterparty_key: string;
+  name: string | null;
+  iban: string | null;
+  worst_outcome: string | null;
+  flag_count: number;
+  last_flagged_at: string | null;
+  fan_in_accounts: number;
+  pay_count: number;
+  mean_amount_eur: number | null;
+}
+
+export interface OutcomeView {
+  event_id: string;
+  account_id: string | null;
+  outcome: string;
+  amount_eur: number | null;
+  signal_pattern: string | null;
+  at: string | null;
+}
+
 // /ops/decisions/{id} — the verbatim stored decision.
 export interface DecisionDetail {
   event_id: string;
@@ -80,8 +108,10 @@ export interface DecisionDetail {
   explanation: { customer: string | null; audit: string | null } | null;
   reason_code: string | null;
   latency_ms: number;
+  items?: ItemResult[] | null;
   // Metadata injected by ops-service from the Decisions table, so the detail page is self-contained.
   account_id?: string | null;
+  hold_expires_at?: string | null;
   amount_eur?: number | null;
   event_type?: string | null;
   created_at?: string | null;
