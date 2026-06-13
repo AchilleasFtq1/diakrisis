@@ -22,7 +22,6 @@ import com.cy.diakritis.common.dto.DeviceInfo;
 import com.cy.diakritis.common.dto.EventType;
 import com.cy.diakritis.common.dto.LimitChangePayload;
 import com.cy.diakritis.common.dto.MassPaymentPayload;
-import com.cy.diakritis.common.dto.Rail;
 import com.cy.diakritis.common.dto.SessionContext;
 import com.cy.diakritis.common.dto.TransferPayload;
 import com.cy.diakritis.common.persistence.AccountItem;

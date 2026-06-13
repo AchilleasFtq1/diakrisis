@@ -1,26 +1,27 @@
 package com.cy.diakritis.bank.config;
 
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import tools.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Global Jackson policy for the bank app: {@code snake_case} property names, the JSR-310
- * {@link JavaTimeModule} so {@link java.time.Instant} serializes as ISO-8601, and timestamps as
- * strings rather than numeric epoch arrays.
+ * Global Jackson policy for the bank app's HTTP layer (Spring Boot 4 / Jackson 3): {@code snake_case}
+ * property names and ISO-8601 timestamps rather than numeric epoch arrays.
+ *
+ * <p>Jackson 3 bundles {@code java.time} support in the core databind module, so no separate
+ * JavaTimeModule registration is required for {@link java.time.Instant} to serialize correctly; the
+ * {@code spring.jackson.*} settings and this customizer fully define the wire format.
  */
 @Configuration
 public class JacksonConfig {
 
     @Bean
-    Jackson2ObjectMapperBuilderCustomizer diakrisisJacksonCustomizer() {
-        return builder -> {
-            builder.propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-            builder.modulesToInstall(new JavaTimeModule());
-            builder.featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        };
+    JsonMapperBuilderCustomizer diakrisisJacksonCustomizer() {
+        return (JsonMapper.Builder builder) -> builder
+                .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+                .disable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
 }
