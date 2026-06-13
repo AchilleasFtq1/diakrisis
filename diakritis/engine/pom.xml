@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.cy.diakritis</groupId>
+        <artifactId>diakritis-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>engine</artifactId>
+    <packaging>jar</packaging>
+    <name>Diakrisis Engine</name>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.cy.diakritis</groupId>
+            <artifactId>common</artifactId>
+        </dependency>
+
+        <!--
+          Smile 3.1.1 is published under groupId com.github.haifengl (the contract's
+          "com.haifengl" is the legacy pre-3.x coordinate; 3.1.1 lives at com.github.haifengl).
+          The M1 serve path only needs the in-memory classifier + Tuple/StructType APIs from
+          smile-core/smile-base; the Arrow/Parquet/HDFS dataframe-IO transitive closure is not
+          on the hot path, so it is excluded to keep the engine classpath lean and the build
+          resolvable without dragging in the entire columnar-IO stack.
+        -->
+        <dependency>
+            <groupId>com.github.haifengl</groupId>
+            <artifactId>smile-core</artifactId>
+            <version>3.1.1</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.parquet</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
