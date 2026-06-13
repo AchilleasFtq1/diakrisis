@@ -198,6 +198,15 @@ final class DemoSeed {
                 T5_PENALTY_CENTS,
                 false);
 
+        // Established home-device / country / platform behavioural baseline (aged 180d, so D1≈0 and
+        // GEO=CY keeps G1 silent on the customer's own device). Without it, the T5a deposit break
+        // would establish acc-B's device "moments" before the T5b sweep and the sweep would read its
+        // own just-seen device as fresh (D1=1.0) — corroborating the safe-account typology and pushing
+        // the kill-chain HOLD up to a two-typology BLOCK. The home baseline keeps the T5b liquidation
+        // sweep a clean single-typology HOLD, matching the disclosed T5b golden path. The device id
+        // (dev-b) and home range (203.0.113.x → CY) are what the demo's acc-B session presents.
+        seedHomeDevice("acc-B", "dev-b", "IOS");
+
         AccountItem account = baseAccount("acc-B", "Demo Account B", CUSTOMER_B,
                 ACC_B_BALANCE_CENTS, false, List.of());
         account.setTermDeposits(new ArrayList<>(List.of(deposit)));

@@ -1,0 +1,23 @@
+# Keep build images lean: the builder only needs poms + src for common/, engine/ and the one
+# service. Everything below is either huge (Berka data, ~86 MB), rebuilt inside the image
+# (target/), or irrelevant to the build (VCS, docs, IDE).
+**/target/
+data/
+.git/
+.gitignore
+.gitattributes
+.project
+.settings/
+.classpath
+bin/
+*.md
+*.iml
+.idea/
+.vscode/
+*.workflow.js
+qa/
+docs/
+docker-compose.yml
+.dockerignore
+Dockerfile
+**/Dockerfile

@@ -1,7 +1,113 @@
+# Diakrisis full stack — `docker compose up --build` brings up the whole pipeline:
+#
+#   dynamodb (amazon/dynamodb-local) -> etl-seed (one-shot --demo seed) ->
+#   decision-service (:8081) -> bank-app (:8080)
+#
+# All services share the default compose network and address each other by service name
+# (dynamodb, decision-service). The dynamo endpoint, decision-service base URL, JWT secret and
+# models directory are injected via environment variables that the apps already read
+# (application.yml ${...} placeholders), so the container hostnames take effect with no code change.
+#
+# No host JDK/Maven is needed: every image is built multi-stage (Maven+JDK 26 builder, slim JRE 26
+# runtime). The ~86 MB Berka dataset and the pre-trained models live OUTSIDE the build context and
+# are bind-mounted read-only at runtime.
+
 services:
+  # ------------------------------------------------------------------------------------------------
+  # DynamoDB Local — shared, in-memory store for the demo run.
+  # ------------------------------------------------------------------------------------------------
   dynamodb:
-    image: amazon/dynamodb-local
+    image: amazon/dynamodb-local:latest
     container_name: diakrisis-dynamodb
     command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
     ports:
       - "8000:8000"
+    healthcheck:
+      # DynamoDB Local answers a bare GET with HTTP 400 (it wants POST); a returned response proves
+      # the port is serving. `curl -s` (no -f) exits 0 on any HTTP response, so a 400 = healthy.
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8000/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ------------------------------------------------------------------------------------------------
+  # ETL seed — builds the feature tables + writes the disclosed demo seed, then exits. Runs ONCE.
+  # ------------------------------------------------------------------------------------------------
+  etl-seed:
+    build:
+      context: .
+      dockerfile: etl/Dockerfile
+    image: diakrisis/etl:0.1.0
+    container_name: diakrisis-etl-seed
+    depends_on:
+      dynamodb:
+        condition: service_healthy
+    # The Berka TSVs are mounted read-only (never copied into the image).
+    volumes:
+      - ./data/raw/berka:/data/berka:ro
+    command:
+      - "--berka-dir"
+      - "/data/berka"
+      - "--ddb-endpoint"
+      - "http://dynamodb:8000"
+      - "--demo"
+    restart: "no"
+
+  # ------------------------------------------------------------------------------------------------
+  # Decision service (:8081) — scoring + lifecycle. Waits for dynamo healthy AND the seed to finish.
+  # ------------------------------------------------------------------------------------------------
+  decision-service:
+    build:
+      context: .
+      dockerfile: decision-service/Dockerfile
+    image: diakrisis/decision-service:0.1.0
+    container_name: diakrisis-decision-service
+    depends_on:
+      dynamodb:
+        condition: service_healthy
+      etl-seed:
+        condition: service_completed_successfully
+    environment:
+      # >= 32 chars for HS256 (shared with bank-app so tokens verify across services).
+      DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
+      DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
+      DIAKRISIS_MODELS_DIR: "/models"
+    # Pre-trained models live OUTSIDE the build context; bind-mount them read-only.
+    volumes:
+      - /Users/achilleaseftychiou/Documents/Projects/diakrisis/diakrisis-models:/models:ro
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  # ------------------------------------------------------------------------------------------------
+  # Bank app (:8080) — customer-facing; calls decision-service. Waits for decision-service healthy.
+  # ------------------------------------------------------------------------------------------------
+  bank-app:
+    build:
+      context: .
+      dockerfile: bank-app/Dockerfile
+    image: diakrisis/bank-app:0.1.0
+    container_name: diakrisis-bank-app
+    depends_on:
+      dynamodb:
+        condition: service_healthy
+      decision-service:
+        condition: service_healthy
+    environment:
+      DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
+      DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
+      DIAKRISIS_DECISION_SERVICE_BASE_URL: "http://decision-service:8081"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 20s

@@ -81,6 +81,16 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!--
+          Actuator exposes /actuator/health, consumed by the docker-compose healthcheck and bypassed
+          by the JWT filter's public-path rule (/actuator/**). application.yml already configures the
+          management endpoints; this starter activates them.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>dynamodb-enhanced</artifactId>

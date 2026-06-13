@@ -116,7 +116,8 @@ it and an ISO 20022 reason code (auditability is a feature).
 
 ## Build & run
 
-Prerequisites: JDK 26, Maven 3.9+, Docker.
+Prerequisites: JDK 26, Maven 3.9+, Docker. **Or run the whole stack with Docker alone** — no
+host JDK/Maven needed — see [Run the whole stack in Docker](#run-the-whole-stack-in-docker-no-host-jdkmaven-needed).
 
 ```bash
 # 1. DynamoDB Local
@@ -137,6 +138,62 @@ java -jar bank-app/target/bank-app-*.jar                    # :8080
 
 The engine loads its pre-trained model artifacts from `diakrisis.models-dir`
 (default `../diakrisis-models`).
+
+### Run the whole stack in Docker (no host JDK/Maven needed)
+
+`docker compose up --build` brings up the **entire stack** — DynamoDB Local, a one-shot
+ETL seed, the decision-service and the bank-app — on a shared network with service-name DNS.
+Every image is **multi-stage**: a `maven:3.9-eclipse-temurin-26` builder compiles the module
+from source, and a slim `eclipse-temurin:26-jre` runtime carries only the fat jar. **No JDK or
+Maven is required on the host** — only Docker.
+
+```bash
+# From this directory (the Maven reactor root):
+docker compose up --build      # build all images, then start the stack
+#   dynamodb        :8000   (amazon/dynamodb-local, in-memory, healthchecked)
+#   etl-seed                (builds the feature tables + --demo seed from real Berka, then exits 0)
+#   decision-service:8081   (waits for dynamo healthy AND the seed to complete; /actuator/health)
+#   bank-app        :8080   (waits for decision-service healthy; /actuator/health)
+
+docker compose up -d --build   # detached
+docker compose ps              # watch states until all are "healthy" and etl-seed "exited (0)"
+docker compose logs -f etl-seed
+docker compose down            # stop and remove (in-memory DynamoDB data is discarded)
+```
+
+Startup ordering is enforced with compose health/exit conditions:
+`dynamodb (healthy) → etl-seed (completed successfully) → decision-service (healthy) → bank-app (healthy)`.
+
+**Mounts (kept out of the build context, bind-mounted read-only at runtime):**
+
+- the ~86 MB Berka dataset → `etl-seed:/data/berka:ro` (invoked with `--berka-dir /data/berka`);
+- the pre-trained models (`../diakrisis-models`, outside the build context) →
+  `decision-service:/models:ro`, with `diakrisis.models-dir=/models`.
+
+**Configuration is injected via environment variables** the apps already read from
+`application.yml` (`${...}` placeholders), so the container hostnames take effect with no code
+change:
+
+| Variable | dynamodb / decision-service / bank-app |
+|---|---|
+| `DIAKRISIS_DYNAMO_ENDPOINT` | `http://dynamodb:8000` |
+| `DIAKRISIS_DECISION_SERVICE_BASE_URL` | `http://decision-service:8081` (bank-app) |
+| `DIAKRISIS_MODELS_DIR` | `/models` (decision-service) |
+| `DIAKRISIS_JWT_SECRET` | shared ≥32-char secret (both apps verify the same HS256 key) |
+
+**Try it against the containerized stack** (a live verdict through bank-app → decision-service):
+
+```bash
+TOKEN=$(curl -s localhost:8080/auth/login -H 'Content-Type: application/json' \
+        -d '{"username":"customer-A","password":"demo"}' | jq -r .token)
+
+# T1 → ALLOW + SCA-exempt
+curl -s localhost:8080/transfers -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
+  "addressing":"ACCOUNT","value":"CD|46939146","resolved_account_ref":"CD|46939146",
+  "amount_eur":120,"rail":"SEPA",
+  "session":{"session_id":"s1","channel":"WEB","ip":"203.0.113.5","device_id":"dev-a","platform":"WEB"}
+}' | jq '.engine_verdict.decision'
+```
 
 ### Building services independently
 
