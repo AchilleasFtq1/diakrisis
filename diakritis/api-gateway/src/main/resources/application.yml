@@ -47,6 +47,33 @@ spring:
               predicates:
                 - Path=/admin/**
 
+            # ------------------------------------------------------------------------------------------
+            # OpenAPI doc proxies. Backends are NOT exposed to the host (only the gateway is), so the
+            # aggregated Swagger UI cannot fetch their /v3/api-docs directly from the browser. These
+            # routes proxy each backend's spec THROUGH the gateway at a gateway-local path, which the
+            # UI group selector below points at. The specs' operation paths are relative (/decision,
+            # /ops/**, ...), so "Try it out" fires back at the gateway origin — exercising the real
+            # edge path, auth included. Public at the edge (EdgeAuthFilter allows /v3/api-docs/**).
+            # ------------------------------------------------------------------------------------------
+            - id: apidocs-decision
+              uri: ${diakrisis.backends.decision-service}
+              predicates:
+                - Path=/v3/api-docs/decision-service
+              filters:
+                - RewritePath=/v3/api-docs/decision-service,/v3/api-docs
+            - id: apidocs-ops
+              uri: ${diakrisis.backends.ops-service}
+              predicates:
+                - Path=/v3/api-docs/ops-service
+              filters:
+                - RewritePath=/v3/api-docs/ops-service,/v3/api-docs
+            - id: apidocs-iam
+              uri: ${diakrisis.backends.iam-service}
+              predicates:
+                - Path=/v3/api-docs/iam-service
+              filters:
+                - RewritePath=/v3/api-docs/iam-service,/v3/api-docs
+
 diakrisis:
   jwt:
     # Same secret the backends use to mint/verify; the gateway re-verifies at the edge (HS256, >=32 bytes).
@@ -59,7 +86,8 @@ diakrisis:
 
 # ------------------------------------------------------------------------------------------------
 # Aggregated Swagger UI: one UI at the gateway listing the three backends' live OpenAPI docs as
-# groups. springdoc points the UI's group selector at each backend's /v3/api-docs directly.
+# groups. The group URLs are GATEWAY-LOCAL (the apidocs-* routes above proxy them to the backends),
+# so the whole UI works through :8080 alone — the backends are not reachable from the browser.
 # ------------------------------------------------------------------------------------------------
 springdoc:
   swagger-ui:
@@ -68,11 +96,11 @@ springdoc:
     disable-swagger-default-url: true
     urls:
       - name: decision-service
-        url: ${DIAKRISIS_DECISION_URL:http://localhost:8081}/v3/api-docs
+        url: /v3/api-docs/decision-service
       - name: ops-service
-        url: ${DIAKRISIS_OPS_URL:http://localhost:8082}/v3/api-docs
+        url: /v3/api-docs/ops-service
       - name: iam-service
-        url: ${DIAKRISIS_IAM_URL:http://localhost:8083}/v3/api-docs
+        url: /v3/api-docs/iam-service
 
 management:
   endpoints:

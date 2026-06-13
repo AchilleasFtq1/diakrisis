@@ -1,11 +1,20 @@
-# Diakrisis full stack — `docker compose up --build` brings up the whole pipeline:
+# Diakrisis full stack — `docker compose up --build` brings up the whole product:
 #
 #   dynamodb (amazon/dynamodb-local) -> etl-seed (one-shot --demo seed) ->
-#   decision-service (:8081) + iam-service (:8083) + ops-service (:8082)
+#   decision-service (:8081) + iam-service (:8083) + ops-service (:8082) -> api-gateway (:8080)
+#
+# api-gateway is THE FRONT DOOR: callers hit :8080 and it routes /decision,/actions/**,/decisions/**
+# to decision-service, /ops/** to ops-service, /auth/**,/admin/** to iam-service (by container DNS),
+# verifying the HS256 bearer at the edge. The three services stay individually exposed for direct
+# testing, but the gateway is how a consumer is meant to reach the product.
+#
+# The `demo` profile adds demo-bank (:9000) — a standalone dummy bank (its own project, OUTSIDE the
+# reactor) that calls the product THROUGH the gateway to show the end-to-end flow:
+#   `docker compose --profile demo up --build`.
 #
 # All services share the default compose network and address each other by service name
-# (dynamodb, decision-service). The dynamo endpoint, decision-service base URL, JWT secret and
-# models directory are injected via environment variables that the apps already read
+# (dynamodb, decision-service, api-gateway, ...). The dynamo endpoint, backend base URLs, JWT secret
+# and models directory are injected via environment variables that the apps already read
 # (application.yml ${...} placeholders), so the container hostnames take effect with no code change.
 #
 # No host JDK/Maven is needed: every image is built multi-stage (Maven+JDK 26 builder, slim JRE 26
@@ -135,8 +144,10 @@ services:
     # Pre-trained models live OUTSIDE the build context; bind-mount them read-only.
     volumes:
       - /Users/achilleaseftychiou/Documents/Projects/diakrisis/diakrisis-models:/models:ro
-    ports:
-      - "8081:8081"
+    # No host port: the decision API is reachable ONLY through the gateway (:8080). The service stays
+    # on the internal compose network, addressed by DNS (decision-service:8081) by the gateway.
+    expose:
+      - "8081"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/actuator/health || exit 1"]
       interval: 5s
@@ -161,8 +172,10 @@ services:
     environment:
       DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
       DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
-    ports:
-      - "8083:8083"
+    # No host port: auth/admin are reachable ONLY through the gateway (:8080). Stays on the internal
+    # network, addressed by DNS (iam-service:8083).
+    expose:
+      - "8083"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8083/actuator/health || exit 1"]
       interval: 5s
@@ -189,10 +202,77 @@ services:
     environment:
       DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
       DIAKRISIS_DYNAMO_ENDPOINT: "http://dynamodb:8000"
-    ports:
-      - "8082:8082"
+    # No host port: the ops API is reachable ONLY through the gateway (:8080). Stays on the internal
+    # network, addressed by DNS (ops-service:8082).
+    expose:
+      - "8082"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8082/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  # ------------------------------------------------------------------------------------------------
+  # API gateway (:8080) — the product's single front door. Spring Cloud Gateway Server MVC routes by
+  # path to the three backends (over container DNS) and verifies the HS256 bearer at the edge. Waits
+  # for all three backends to be healthy so the routes resolve on first request. Self-contained:
+  # depends on nothing from the reactor (built standalone on Spring Boot 4.0.x).
+  # ------------------------------------------------------------------------------------------------
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    image: diakrisis/api-gateway:0.1.0
+    container_name: diakrisis-api-gateway
+    depends_on:
+      decision-service:
+        condition: service_healthy
+      iam-service:
+        condition: service_healthy
+      ops-service:
+        condition: service_healthy
+    environment:
+      # Same HS256 secret the backends mint/verify with — the gateway re-verifies at the edge.
+      DIAKRISIS_JWT_SECRET: "diakrisis-docker-compose-shared-secret-key-0123456789"
+      # Backend base URLs by container DNS (override the localhost dev defaults in application.yml).
+      DIAKRISIS_DECISION_URL: "http://decision-service:8081"
+      DIAKRISIS_OPS_URL: "http://ops-service:8082"
+      DIAKRISIS_IAM_URL: "http://iam-service:8083"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  # ------------------------------------------------------------------------------------------------
+  # Demo bank (:9000) — a STANDALONE dummy bank (its own project at ../demo-bank, OUTSIDE the
+  # reactor) that consumes the product over HTTP. Behind the 'demo' profile so the default `up` is
+  # the product alone; `docker compose --profile demo up` adds it. It points at the GATEWAY (one
+  # base-url repoints both its iam + decision calls), exercising the full edge path. Waits for the
+  # gateway to be healthy. SQLite state is ephemeral and re-seeded on every boot.
+  # ------------------------------------------------------------------------------------------------
+  demo-bank:
+    build:
+      context: ../demo-bank
+      dockerfile: Dockerfile
+    image: diakrisis/demo-bank:0.1.0
+    container_name: diakrisis-demo-bank
+    profiles: ["demo"]
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    environment:
+      # A single override sends both /auth/login (iam) and /decision (decision) through the gateway.
+      DIAKRISIS_GATEWAY_BASE_URL: "http://api-gateway:8080"
+    ports:
+      - "9000:9000"
+    healthcheck:
+      # demo-bank has no actuator; its index page returning 200 proves it is serving.
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 15
