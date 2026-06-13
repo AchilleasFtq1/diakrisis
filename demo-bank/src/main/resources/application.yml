@@ -20,9 +20,11 @@ spring:
   thymeleaf:
     cache: false
 
-# Diakrisis service base-urls. The API gateway does not exist yet, so we call the services DIRECTLY.
-# Once the gateway is up at :8080, set diakrisis.gateway.base-url and BOTH iam + decision repoint to
-# it (see DiakrisisProperties): a single override moves every call behind the gateway with no rebuild.
+# Diakrisis service base-urls. The product's front door is the API gateway (:8080) — set
+# diakrisis.gateway.base-url (env DIAKRISIS_GATEWAY_BASE_URL, which docker-compose does) and BOTH the
+# iam + decision calls repoint through it (see DiakrisisProperties): one override moves every call
+# behind the gateway with no rebuild. Left empty here so a bare dev run without a gateway still works
+# by calling the services directly on their localhost dev ports below.
 diakrisis:
   gateway:
     base-url: ""                       # e.g. http://localhost:8080 — overrides both when set
