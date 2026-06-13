@@ -84,9 +84,8 @@ export default function DecisionDetail() {
   const concur = ai?.agreement === 'CONCUR';
 
   const fundsFreed = account.data?.posture?.funds_freed_eur72h ?? 0;
-  const isKillChain =
-    typologies.some((t) => t.includes('kill_chain') || t.includes('chain')) ||
-    (fundsFreed > 0 && (account.data?.history?.length ?? 0) > 1);
+  // Escalated treatment only when the engine actually fired a chain typology — no client-side guessing.
+  const isKillChain = typologies.some((t) => t.toLowerCase().includes('chain'));
 
   const latencyOk = d != null && d.latency_ms < 50;
   const stamp = entry?.created_at ? new Date(entry.created_at).toLocaleString('en-GB', { hour12: false }) : '—';
@@ -143,7 +142,7 @@ export default function DecisionDetail() {
             </div>
             <span className="text-[12px] text-fg-2">
               {isKillChain ? (
-                <>Each step is ALLOW-grade in isolation — the <span className="text-block font-semibold">sequence</span> is the scam.</>
+                <>The engine scored the <span className="text-block font-semibold">sequence</span>, not just this payment — earlier steps built the posture behind this verdict.</>
               ) : (
                 'The actions the engine remembered on this account, oldest → newest.'
               )}

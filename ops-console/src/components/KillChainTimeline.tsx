@@ -49,7 +49,6 @@ export function KillChainTimeline({
       <div className="flex gap-0 min-w-max">
         {steps.map((s, i) => {
           const active = s.event_id === highlightEventId;
-          const last = i === steps.length - 1;
           const color = s.verdict ? DOT[s.verdict] : '#5C6773';
           return (
             <div key={s.event_id} className="relative flex-1 min-w-[160px] pr-3.5 last:pr-0">
@@ -78,9 +77,8 @@ export function KillChainTimeline({
                 <div className="font-mono text-[11px] text-fg-2 mt-1.5">{euro(s.amount_eur)}</div>
                 <div
                   className="text-[10.5px] mt-1.5 font-mono"
-                  style={{ color: active && isKillChain ? color : '#5C6773', fontWeight: active ? 600 : 400 }}
+                  style={{ color: active ? color : '#5C6773', fontWeight: active ? 600 : 400 }}
                 >
-                  {active && isKillChain && last ? 'DRAIN · ' : ''}
                   {s.verdict ?? '—'}
                 </div>
               </div>
