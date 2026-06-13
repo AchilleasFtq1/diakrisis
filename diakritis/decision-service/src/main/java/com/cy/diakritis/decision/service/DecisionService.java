@@ -19,6 +19,8 @@ import com.cy.diakritis.common.persistence.CounterpartyReputationItem;
 import com.cy.diakritis.common.persistence.DecisionItem;
 import com.cy.diakritis.common.persistence.ObservationItem;
 import com.cy.diakritis.common.security.AuthPrincipal;
+import com.cy.diakritis.common.security.Role;
+import com.cy.diakritis.decision.web.error.ForbiddenException;
 import com.cy.diakritis.decision.repo.AccountPostureRepository;
 import com.cy.diakritis.decision.repo.CaseRepository;
 import com.cy.diakritis.decision.repo.CounterpartyReputationRepository;
@@ -150,6 +152,17 @@ public class DecisionService {
      * calls, in which case the initiator is recorded as the event's account id.
      */
     public Decision decide(ActionEvent event, AuthPrincipal principal) {
+        // Authorisation: a CUSTOMER-scoped token may only submit decisions for its OWN account — it
+        // must not score (or replay) another customer's account. Elevated/service roles (the bank's
+        // own OPS/ADMIN/APPROVER credentials, or a future service account with no account claim) may
+        // submit on behalf of any account, which is how a bank back-end legitimately calls this API.
+        if (principal != null && principal.role() == Role.CUSTOMER
+                && principal.accountId() != null
+                && !principal.accountId().equals(event.accountId())) {
+            throw new ForbiddenException("ACCOUNT_OWNERSHIP_REQUIRED",
+                    "This token may only submit decisions for its own account");
+        }
+
         // CI-1 fast path: a stored decision replays verbatim with no re-scoring / no mutation.
         var existing = decisionRepository.findByEventId(event.eventId());
         if (existing.isPresent()) {

@@ -41,6 +41,7 @@ import java.util.List;
 public class LifecycleService {
 
     public static final String ERR_SELF_APPROVAL = "SELF_APPROVAL_FORBIDDEN";
+    public static final String ERR_NOT_AUTHORISED = "APPROVER_OR_ADMIN_REQUIRED";
     public static final String ERR_LOCKED_PRE_EXPIRY = "LOCKED_PRE_EXPIRY";
     public static final String ERR_ILLEGAL_TRANSITION = "ILLEGAL_TRANSITION";
 
@@ -291,9 +292,13 @@ public class LifecycleService {
         if (principal == null) {
             throw new UnauthorizedException("Authentication required to approve");
         }
-        if (principal.role() != Role.APPROVER) {
-            throw new ForbiddenException(ERR_SELF_APPROVAL,
-                    "Only a designated approver may approve or reject");
+        // Four-eyes authorisation: the designated business APPROVER, or the bank's ADMIN acting as the
+        // call-center (who verifies the customer out-of-band — a phone call — before authorising). A
+        // CUSTOMER/OPS token can never approve. The PENDING_APPROVAL state is enforced separately by
+        // requireState(), so an action can only be authorised while it is actually awaiting approval.
+        if (principal.role() != Role.APPROVER && principal.role() != Role.ADMIN) {
+            throw new ForbiddenException(ERR_NOT_AUTHORISED,
+                    "Only a designated approver or an admin (call-center) may approve or reject");
         }
     }
 
