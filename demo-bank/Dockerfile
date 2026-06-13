@@ -30,9 +30,17 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --create-home --uid 10001 appuser
+
+# demo-bank owns its SQLite store: give it a writable data dir (the app runs as the non-root
+# appuser, so /app and the db location must be writable by that user). The db is dropped and
+# re-seeded on every boot, so it is ephemeral container-local state — it belongs to this service.
+RUN mkdir -p /app/data && chown -R appuser:appuser /app
 USER appuser
 
-COPY --from=builder /build/app.jar /app/app.jar
+COPY --chown=appuser:appuser --from=builder /build/app.jar /app/app.jar
+
+# The SQLite file lives under the service's own writable data dir (overridable via SPRING_DATASOURCE_URL).
+ENV SPRING_DATASOURCE_URL=jdbc:sqlite:/app/data/demo-bank.db
 
 EXPOSE 9000
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

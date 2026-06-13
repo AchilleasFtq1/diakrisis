@@ -3,8 +3,9 @@
 # etl (BerkaEtl seed CLI) — multi-stage build.
 #
 # Build context is the Maven reactor ROOT (see docker-compose.yml `build.context: .`). etl depends
-# only on the `common` shared library, so the builder installs `common` to .m2 then shades etl into
-# a self-contained runnable jar (finalName=etl).
+# on `common` AND `engine` (the M2 exemplar loader reuses the engine's M2Scaler + the Qdrant client
+# it carries transitively), so the builder installs `common` then `engine` to .m2 before shading etl
+# into a self-contained runnable jar (finalName=etl).
 #
 # The Berka data is NOT copied into the image (it is ~86 MB); compose mounts it read-only at /data
 # and BerkaEtl is invoked with `--berka-dir /data/berka`.
@@ -17,10 +18,14 @@ FROM maven:3.9-eclipse-temurin-26 AS builder
 WORKDIR /build
 
 COPY common/pom.xml common/pom.xml
+COPY engine/pom.xml engine/pom.xml
 COPY etl/pom.xml    etl/pom.xml
 
 COPY common/src common/src
 RUN --mount=type=cache,target=/root/.m2 mvn -q -f common/pom.xml clean install -DskipTests
+
+COPY engine/src engine/src
+RUN --mount=type=cache,target=/root/.m2 mvn -q -f engine/pom.xml clean install -DskipTests
 
 COPY etl/src etl/src
 RUN --mount=type=cache,target=/root/.m2 mvn -q -f etl/pom.xml clean package -DskipTests
