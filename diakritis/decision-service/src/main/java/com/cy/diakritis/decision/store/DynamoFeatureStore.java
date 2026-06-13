@@ -75,7 +75,8 @@ public class DynamoFeatureStore implements FeatureStore {
                 item.getOutTxnCount(),
                 item.isBusinessAccount(),
                 item.isHasDesignatedApprover(),
-                item.getApproverUserIds());
+                item.getApproverUserIds(),
+                item.isVulnerable());
     }
 
     @Override

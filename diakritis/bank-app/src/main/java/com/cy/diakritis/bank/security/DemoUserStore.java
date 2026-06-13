@@ -23,6 +23,8 @@ public class DemoUserStore {
         register(new DemoUser("customer-A", DEMO_PASSWORD, Role.CUSTOMER, "acc-A"));
         register(new DemoUser("customer-B", DEMO_PASSWORD, Role.CUSTOMER, "acc-B"));
         register(new DemoUser("customer-C", DEMO_PASSWORD, Role.CUSTOMER, "acc-C"));
+        // §17 vulnerability-aware friction: owner of the flagged-vulnerable demo account acc-V.
+        register(new DemoUser("customer-vuln", DEMO_PASSWORD, Role.CUSTOMER, "acc-V"));
         register(new DemoUser("approver-biz", DEMO_PASSWORD, Role.APPROVER, null));
         register(new DemoUser("ops-user", DEMO_PASSWORD, Role.OPS, null));
     }

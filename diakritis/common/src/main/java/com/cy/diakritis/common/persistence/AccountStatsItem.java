@@ -23,6 +23,7 @@ public class AccountStatsItem {
     private boolean isBusinessAccount;
     private boolean hasDesignatedApprover;
     private List<String> approverUserIds;
+    private boolean isVulnerable;
     private String source;
 
     @DynamoDbPartitionKey
@@ -105,6 +106,14 @@ public class AccountStatsItem {
 
     public void setApproverUserIds(List<String> approverUserIds) {
         this.approverUserIds = approverUserIds;
+    }
+
+    public boolean isVulnerable() {
+        return isVulnerable;
+    }
+
+    public void setVulnerable(boolean vulnerable) {
+        isVulnerable = vulnerable;
     }
 
     public String getSource() {

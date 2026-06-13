@@ -22,6 +22,30 @@ diakrisis:
     endpoint: ${DIAKRISIS_DYNAMO_ENDPOINT:http://localhost:8000}
     region: us-east-1
     auto-create: true
+  # §9.4 AI co-judge — local Gemma via Ollama, advisory-only second opinion. Default ON; degrades to
+  # the UNAVAILABLE resilience default automatically when Ollama is not reachable at boot. The engine
+  # decision is authoritative regardless. Override per-environment via the env vars below.
+  cojudge:
+    enabled: ${DIAKRISIS_COJUDGE_ENABLED:true}
+    ollama-url: ${DIAKRISIS_COJUDGE_OLLAMA_URL:http://localhost:11434}
+    model: ${DIAKRISIS_COJUDGE_MODEL:gemma4:e2b}
+    timeout-ms: ${DIAKRISIS_COJUDGE_TIMEOUT_MS:600}
+    warm-up-on-boot: ${DIAKRISIS_COJUDGE_WARMUP:true}
+  # §9.2 M2 vector-similarity backend. `backend` = qdrant | kdtree | auto:
+  #   qdrant — live cosine k-NN over a running Qdrant (gRPC :6334); falls back to the in-JVM Smile
+  #            KDTree automatically if Qdrant is unreachable or empty at boot (resilience).
+  #   kdtree — the in-JVM Smile KDTree over m2/exemplars.csv, no container required.
+  #   auto   — prefer Qdrant when reachable, else KDTree.
+  # M2 is additive and capped (Weights.M2_CAP); an unreachable Qdrant never fails the service.
+  m2:
+    backend: ${DIAKRISIS_M2_BACKEND:qdrant}
+    qdrant:
+      host: ${DIAKRISIS_M2_QDRANT_HOST:localhost}
+      port: ${DIAKRISIS_M2_QDRANT_PORT:6334}
+      use-tls: ${DIAKRISIS_M2_QDRANT_TLS:false}
+      collection: ${DIAKRISIS_M2_QDRANT_COLLECTION:fraud_exemplars}
+      connect-timeout-ms: ${DIAKRISIS_M2_QDRANT_CONNECT_TIMEOUT_MS:1500}
+      query-timeout-ms: ${DIAKRISIS_M2_QDRANT_QUERY_TIMEOUT_MS:250}
 
 management:
   endpoints:

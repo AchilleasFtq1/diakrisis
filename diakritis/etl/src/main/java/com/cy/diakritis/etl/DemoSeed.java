@@ -97,6 +97,14 @@ final class DemoSeed {
     private static final String ACC_X1B = "acc-B2";
     private static final String CP_MULE = "CY|CPMULE99";
 
+    // §17 vulnerability-aware friction: the single flagged-vulnerable demo account (retail, owner
+    // customer-vuln). An ALLOW/CONFIRM-band action on it is escalated exactly one band (capped at
+    // HOLD). It is intentionally NOT one of the T1-T15 demo accounts, so the golden-path assertions
+    // are unaffected.
+    private static final String ACC_V = "acc-V";
+    private static final String CUSTOMER_VULN = "customer-vuln";
+    private static final String V_ESTABLISHED_CP = "CY|VULNCP001";
+
     private final DynamoDbEnhancedClient enhanced;
     private final DynamoDbTable<CounterpartyBaselineItem> baselineTable;
     private final DynamoDbTable<AccountStatsItem> statsTable;
@@ -140,6 +148,7 @@ final class DemoSeed {
         seedPayrollAccount();        // T11
         seedMuleFanOutAccount();     // T12
         seedCrossAccountReputation();// T15
+        seedVulnerableAccount();     // §17 vulnerability-aware friction
     }
 
     /**
@@ -385,6 +394,49 @@ final class DemoSeed {
         AccountItem b = baseAccount(ACC_X1B, "Demo X-Account B2", CUSTOMER_X2, 500_000L, false, List.of());
         b.setSource(Keys.SOURCE_CONSTRUCTED);
         accountsTable.putItem(b);
+    }
+
+    /**
+     * §17 — the single flagged-vulnerable demo account (acc-V, retail, owner customer-vuln). It is
+     * given a tight low-mean outgoing distribution and one established counterparty so an everyday
+     * anomalous-amount payment lands in the CONFIRM band — which the §17 friction then escalates one
+     * band to HOLD because the account is flagged vulnerable. The established home device keeps the
+     * device/geo signals quiet so the escalation is driven by the vulnerability flag, not by other
+     * risk. Crucially this is NOT a T1-T15 account, so the golden-path assertions are unaffected.
+     */
+    private void seedVulnerableAccount() {
+        putStatsVulnerable(ACC_V, 12_633L, 2_000L, 12_633L, 1_500L, 287L);
+        seedHomeDevice(ACC_V, "dev-v", "IOS");
+
+        long firstSeen = epochMs(now.minus(Duration.ofDays(200)));
+        CounterpartyBaselineItem cp = baseline(ACC_V, V_ESTABLISHED_CP, 60L, 12_960L, firstSeen, List.of(
+                new RecentPayment(12_960L, firstSeen),
+                new RecentPayment(12_960L, epochMs(now.minus(Duration.ofDays(60)))),
+                new RecentPayment(12_960L, epochMs(now.minus(Duration.ofDays(30))))));
+        baselineTable.putItem(cp);
+
+        AccountItem account = baseAccount(ACC_V, "Demo Vulnerable Account V", CUSTOMER_VULN,
+                450_000L, false, List.of());
+        account.setSource(Keys.SOURCE_CONSTRUCTED);
+        accountsTable.putItem(account);
+    }
+
+    /** As {@link #putStats} but flags the account vulnerable for the §17 friction escalation. */
+    private void putStatsVulnerable(String accountId, long mean, long std, long median, long mad, long count) {
+        AccountStatsItem item = new AccountStatsItem();
+        item.setPk(Keys.accountPk(accountId));
+        item.setSk(Keys.META_SK);
+        item.setOutMeanAmountCents(mean);
+        item.setOutStdAmountCents(std);
+        item.setOutMedianAmountCents(median);
+        item.setOutMadAmountCents(mad);
+        item.setOutTxnCount(count);
+        item.setBusinessAccount(false);
+        item.setHasDesignatedApprover(false);
+        item.setApproverUserIds(List.of());
+        item.setVulnerable(true);
+        item.setSource(Keys.SOURCE_CONSTRUCTED);
+        statsTable.putItem(item);
     }
 
     // --- T7-T15 seed helpers -----------------------------------------------------------------------

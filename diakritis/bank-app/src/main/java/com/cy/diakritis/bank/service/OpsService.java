@@ -3,11 +3,18 @@ package com.cy.diakritis.bank.service;
 import com.cy.diakritis.bank.web.dto.ApprovalEntry;
 import com.cy.diakritis.bank.web.dto.CountersView;
 import com.cy.diakritis.bank.web.dto.FeedEntry;
+import com.cy.diakritis.common.dto.Decision;
 import com.cy.diakritis.common.dto.LifecycleState;
+import com.cy.diakritis.common.dto.Outcome;
 import com.cy.diakritis.common.persistence.CaseItem;
 import com.cy.diakritis.common.persistence.DecisionItem;
+import com.cy.diakritis.common.persistence.OutcomeItem;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,14 +31,21 @@ import java.util.TreeMap;
 @Service
 public class OpsService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(OpsService.class);
+
     private static final int FEED_LIMIT = 100;
 
     private final DynamoDbTable<DecisionItem> decisionTable;
     private final DynamoDbTable<CaseItem> caseTable;
+    private final DynamoDbTable<OutcomeItem> outcomeTable;
+    private final JsonMapper jsonMapper;
 
-    public OpsService(DynamoDbTable<DecisionItem> decisionTable, DynamoDbTable<CaseItem> caseTable) {
+    public OpsService(DynamoDbTable<DecisionItem> decisionTable, DynamoDbTable<CaseItem> caseTable,
+                      DynamoDbTable<OutcomeItem> outcomeTable, JsonMapper jsonMapper) {
         this.decisionTable = decisionTable;
         this.caseTable = caseTable;
+        this.outcomeTable = outcomeTable;
+        this.jsonMapper = jsonMapper;
     }
 
     public List<FeedEntry> feed() {
@@ -46,15 +60,74 @@ public class OpsService {
         return entries;
     }
 
+    /**
+     * Aggregate counters for the ops console: the lifecycle breakdown, the headline operating metrics
+     * (SCA-exemption rate, p50 latency) computed over the {@code Decisions} table, and the SDD §9.5
+     * feedback-loop counters (confirmed saves, false positives, money saved) computed over the
+     * {@code Outcomes} table.
+     */
     public CountersView counters() {
         Map<String, Long> byState = new TreeMap<>();
         long total = 0;
-        for (DecisionItem item : decisionTable.scan().items().stream().toList()) {
+        long scaExemptCount = 0;
+        List<Long> latencies = new ArrayList<>();
+
+        for (DecisionItem item : decisionTable.scan().items()) {
             total++;
             String state = item.getLifecycleState() == null ? "UNKNOWN" : item.getLifecycleState();
             byState.merge(state, 1L, Long::sum);
+
+            Decision decision = parseDecision(item);
+            if (decision == null || decision.engineVerdict() == null) {
+                continue;
+            }
+            if (decision.engineVerdict().scaExempt()) {
+                scaExemptCount++;
+            }
+            latencies.add(decision.latencyMs());
         }
-        return new CountersView(total, byState);
+
+        long confirmedSaves = 0;
+        long falsePositives = 0;
+        long moneySavedCents = 0;
+        for (OutcomeItem outcome : outcomeTable.scan().items()) {
+            if (Outcome.CONFIRMED_SAVE.name().equals(outcome.getOutcome())) {
+                confirmedSaves++;
+                moneySavedCents += outcome.getAmountCents();
+            } else if (Outcome.FALSE_POSITIVE.name().equals(outcome.getOutcome())) {
+                falsePositives++;
+            }
+        }
+
+        double exemptionRate = total == 0 ? 0.0 : (double) scaExemptCount / total;
+        long p50LatencyMs = p50(latencies);
+
+        return new CountersView(total, byState, confirmedSaves, falsePositives,
+                moneySavedCents, exemptionRate, p50LatencyMs);
+    }
+
+    /** Parse the stored verbatim {@code Decision} response; null (logged) if it cannot be read. */
+    private Decision parseDecision(DecisionItem item) {
+        if (item.getResponseJson() == null || item.getResponseJson().isBlank()) {
+            return null;
+        }
+        try {
+            return jsonMapper.readValue(item.getResponseJson(), Decision.class);
+        } catch (JacksonException ex) {
+            LOG.warn("Could not parse stored decision for event {}: {}",
+                    item.getEventId(), ex.toString());
+            return null;
+        }
+    }
+
+    /** Median (p50) of the supplied latencies; 0 when empty. Lower-median on an even count. */
+    private static long p50(List<Long> latencies) {
+        if (latencies.isEmpty()) {
+            return 0L;
+        }
+        List<Long> sorted = new ArrayList<>(latencies);
+        sorted.sort(Comparator.naturalOrder());
+        return sorted.get((sorted.size() - 1) / 2);
     }
 
     public List<ApprovalEntry> approvals() {

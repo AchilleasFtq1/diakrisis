@@ -21,6 +21,7 @@ public class DecisionItem {
     private String responseJson;
     private String lifecycleState;
     private long holdExpiresEpochMs;
+    private long amountCents;
 
     @DynamoDbPartitionKey
     public String getPk() {
@@ -94,5 +95,14 @@ public class DecisionItem {
 
     public void setHoldExpiresEpochMs(long holdExpiresEpochMs) {
         this.holdExpiresEpochMs = holdExpiresEpochMs;
+    }
+
+    /** Action amount in euro-cents (0 for non-monetary actions), used by the §9.5 money-saved counter. */
+    public long getAmountCents() {
+        return amountCents;
+    }
+
+    public void setAmountCents(long amountCents) {
+        this.amountCents = amountCents;
     }
 }

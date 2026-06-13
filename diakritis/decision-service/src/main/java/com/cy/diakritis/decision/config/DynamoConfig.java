@@ -11,6 +11,7 @@ import com.cy.diakritis.common.persistence.DecisionItem;
 import com.cy.diakritis.common.persistence.DynamoConfigSupport;
 import com.cy.diakritis.common.persistence.DynamoProperties;
 import com.cy.diakritis.common.persistence.ObservationItem;
+import com.cy.diakritis.common.persistence.OutcomeItem;
 import com.cy.diakritis.common.persistence.TableBootstrap;
 import com.cy.diakritis.common.persistence.TableSchema;
 import com.cy.diakritis.common.persistence.Tables;
@@ -47,7 +48,8 @@ public class DynamoConfig {
                     TableSchema.of(Tables.ACCOUNT_POSTURE, PK, SK),
                     TableSchema.of(Tables.COUNTERPARTY_REPUTATION, PK, SK),
                     TableSchema.of(Tables.ACCOUNTS, PK, SK),
-                    TableSchema.of(Tables.CASES, PK, SK)));
+                    TableSchema.of(Tables.CASES, PK, SK),
+                    TableSchema.of(Tables.OUTCOMES, PK, SK)));
         }
         return client;
     }
@@ -109,5 +111,11 @@ public class DynamoConfig {
     DynamoDbTable<CaseItem> caseTable(DynamoDbEnhancedClient enhanced) {
         return enhanced.table(Tables.CASES,
                 software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(CaseItem.class));
+    }
+
+    @Bean
+    DynamoDbTable<OutcomeItem> outcomeTable(DynamoDbEnhancedClient enhanced) {
+        return enhanced.table(Tables.OUTCOMES,
+                software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(OutcomeItem.class));
     }
 }

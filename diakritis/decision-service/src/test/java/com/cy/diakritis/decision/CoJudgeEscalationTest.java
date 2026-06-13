@@ -56,7 +56,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "diakrisis.dynamo.endpoint=http://localhost:8000",
         "diakrisis.dynamo.region=us-east-1",
         "diakrisis.dynamo.auto-create=true",
-        "diakrisis.models-dir=/Users/achilleaseftychiou/Documents/Projects/diakrisis/diakrisis-models"
+        "diakrisis.models-dir=/Users/achilleaseftychiou/Documents/Projects/diakrisis/diakrisis-models",
+        // This test overrides the co-judge with a deterministic @Primary stub, so the production
+        // co-judge factory is not needed; disabling it skips the Ollama reachability probe + warm-up
+        // and keeps the test hermetic and fast.
+        "diakrisis.cojudge.enabled=false",
+        // §9.2 M2 pinned to the dormant KDTREE backend so the escalation assertions are independent of
+        // any Qdrant running on the build host (see GoldenPathTest for the rationale).
+        "diakrisis.m2.backend=kdtree"
 })
 class CoJudgeEscalationTest {
 

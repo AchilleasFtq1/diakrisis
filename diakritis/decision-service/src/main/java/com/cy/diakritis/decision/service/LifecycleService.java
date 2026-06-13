@@ -1,17 +1,26 @@
 package com.cy.diakritis.decision.service;
 
+import com.cy.diakritis.common.dto.Decision;
 import com.cy.diakritis.common.dto.LifecycleState;
+import com.cy.diakritis.common.dto.Outcome;
+import com.cy.diakritis.common.dto.Signal;
 import com.cy.diakritis.common.persistence.CaseItem;
 import com.cy.diakritis.common.persistence.DecisionItem;
+import com.cy.diakritis.common.persistence.OutcomeItem;
 import com.cy.diakritis.common.security.AuthPrincipal;
 import com.cy.diakritis.common.security.Role;
 import com.cy.diakritis.decision.repo.CaseRepository;
 import com.cy.diakritis.decision.repo.DecisionRepository;
+import com.cy.diakritis.decision.repo.OutcomeRepository;
 import com.cy.diakritis.decision.web.error.ConflictException;
 import com.cy.diakritis.decision.web.error.ForbiddenException;
 import com.cy.diakritis.decision.web.error.NotFoundException;
 import com.cy.diakritis.decision.web.error.UnauthorizedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.List;
@@ -35,12 +44,22 @@ public class LifecycleService {
     public static final String ERR_LOCKED_PRE_EXPIRY = "LOCKED_PRE_EXPIRY";
     public static final String ERR_ILLEGAL_TRANSITION = "ILLEGAL_TRANSITION";
 
+    private static final Logger LOG = LoggerFactory.getLogger(LifecycleService.class);
+
+    /** Joins the firing signal ids into the recorded outcome's {@code signalPattern}. */
+    private static final String SIGNAL_PATTERN_SEPARATOR = ",";
+
     private final DecisionRepository decisionRepository;
     private final CaseRepository caseRepository;
+    private final OutcomeRepository outcomeRepository;
+    private final JsonMapper jsonMapper;
 
-    public LifecycleService(DecisionRepository decisionRepository, CaseRepository caseRepository) {
+    public LifecycleService(DecisionRepository decisionRepository, CaseRepository caseRepository,
+                            OutcomeRepository outcomeRepository, JsonMapper jsonMapper) {
         this.decisionRepository = decisionRepository;
         this.caseRepository = caseRepository;
+        this.outcomeRepository = outcomeRepository;
+        this.jsonMapper = jsonMapper;
     }
 
     /** Customer confirms a CONFIRM-banded action → executed. */
@@ -50,11 +69,20 @@ public class LifecycleService {
         return transition(decision, LifecycleState.EXECUTED);
     }
 
-    /** Customer abandons a held / pending action → cancelled. */
+    /**
+     * Customer abandons a held / pending action → cancelled. Cancelling a HELD action records a
+     * §9.5 {@link Outcome#CONFIRMED_SAVE}: the cooling-off hold was a true catch — the customer
+     * agreed the interrupted payment was wrong and abandoned it.
+     */
     public LifecycleResult cancel(String eventId) {
         DecisionItem decision = require(eventId);
         requireOpen(decision);
-        return transition(decision, LifecycleState.CANCELLED);
+        boolean wasHeld = LifecycleState.HELD.name().equals(decision.getLifecycleState());
+        LifecycleResult result = transition(decision, LifecycleState.CANCELLED);
+        if (wasHeld) {
+            recordOutcome(decision, Outcome.CONFIRMED_SAVE);
+        }
+        return result;
     }
 
     /**
@@ -69,7 +97,11 @@ public class LifecycleService {
             throw new ConflictException(ERR_LOCKED_PRE_EXPIRY,
                     "Hold is locked until " + Instant.ofEpochMilli(decision.getHoldExpiresEpochMs()));
         }
-        return transition(decision, LifecycleState.EXECUTED);
+        // A HELD action released after its hold expired and executed unchanged is a §9.5
+        // FALSE_POSITIVE: the hold interrupted a legitimate payment (a friction cost, not a catch).
+        LifecycleResult result = transition(decision, LifecycleState.EXECUTED);
+        recordOutcome(decision, Outcome.FALSE_POSITIVE);
+        return result;
     }
 
     /**
@@ -86,6 +118,8 @@ public class LifecycleService {
         }
         CaseItem caseItem = caseRepository.findByEventId(eventId).orElse(null);
         LifecycleResult result = transitionWithApprover(decision, LifecycleState.EXECUTED, principal, caseItem);
+        // The approver judged the four-eyes action legitimate → a labelled APPROVED outcome.
+        recordOutcome(decision, Outcome.APPROVED);
         return result;
     }
 
@@ -99,7 +133,75 @@ public class LifecycleService {
                     "An action cannot be rejected by its initiator");
         }
         CaseItem caseItem = caseRepository.findByEventId(eventId).orElse(null);
-        return transitionWithApprover(decision, LifecycleState.REJECTED, principal, caseItem);
+        LifecycleResult result = transitionWithApprover(decision, LifecycleState.REJECTED, principal, caseItem);
+        // The approver judged the four-eyes action fraudulent / unauthorised → a labelled REJECTED outcome.
+        recordOutcome(decision, Outcome.REJECTED);
+        return result;
+    }
+
+    // --- §9.5 feedback loop: decisions → outcomes → calibration -------------------------------
+
+    /**
+     * Record a labelled {@link Outcome} for a decided event — the persisted SDD §9.5 training signal.
+     * The firing signal pattern (the ids of the signals that actually contributed to the original
+     * verdict) is logged with the outcome so the {@code decisions → outcomes → calibration} loop is
+     * concrete: a calibration pass can read which signal combinations led to true catches versus
+     * false positives. The row is idempotent (pk = {@code OUTCOME#<eventId>}); a replayed transition
+     * overwrites with the same label rather than double-counting.
+     *
+     * <p>Recording an outcome must never break a lifecycle transition that has already committed, so
+     * a malformed stored response (signal pattern unreadable) degrades to an empty pattern and is
+     * logged at WARN rather than propagated.
+     */
+    private void recordOutcome(DecisionItem decision, Outcome outcome) {
+        String signalPattern = firingSignalPattern(decision);
+        long now = Instant.now().toEpochMilli();
+
+        OutcomeItem item = new OutcomeItem();
+        item.setPk(OutcomeRepository.partitionKeyFor(decision.getEventId()));
+        item.setSk(OutcomeRepository.sortKey());
+        item.setEventId(decision.getEventId());
+        item.setAccountId(decision.getAccountId());
+        item.setOutcome(outcome.name());
+        item.setSignalPattern(signalPattern);
+        item.setAmountCents(decision.getAmountCents());
+        item.setEpochMs(now);
+        outcomeRepository.save(item);
+
+        LOG.info("Outcome {} recorded for event {} (signal pattern: [{}])",
+                outcome, decision.getEventId(), signalPattern);
+    }
+
+    /**
+     * The firing signal pattern of a stored decision: the comma-joined ids of the engine signals that
+     * actually contributed to the verdict (non-zero contribution), preserving the engine's signal
+     * order. Empty when the response carries no signals or cannot be parsed.
+     */
+    private String firingSignalPattern(DecisionItem decision) {
+        String responseJson = decision.getResponseJson();
+        if (responseJson == null || responseJson.isBlank()) {
+            return "";
+        }
+        try {
+            Decision stored = jsonMapper.readValue(responseJson, Decision.class);
+            if (stored.engineVerdict() == null || stored.engineVerdict().signals() == null) {
+                return "";
+            }
+            StringBuilder pattern = new StringBuilder();
+            for (Signal signal : stored.engineVerdict().signals()) {
+                if (signal.contribution() != 0.0) {
+                    if (pattern.length() > 0) {
+                        pattern.append(SIGNAL_PATTERN_SEPARATOR);
+                    }
+                    pattern.append(signal.id());
+                }
+            }
+            return pattern.toString();
+        } catch (JacksonException ex) {
+            LOG.warn("Could not parse stored decision for event {} to derive signal pattern: {}",
+                    decision.getEventId(), ex.toString());
+            return "";
+        }
     }
 
     // --- internals ----------------------------------------------------------------------------

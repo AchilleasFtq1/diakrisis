@@ -5,6 +5,7 @@ import com.cy.diakritis.common.persistence.CaseItem;
 import com.cy.diakritis.common.persistence.DecisionItem;
 import com.cy.diakritis.common.persistence.DynamoConfigSupport;
 import com.cy.diakritis.common.persistence.DynamoProperties;
+import com.cy.diakritis.common.persistence.OutcomeItem;
 import com.cy.diakritis.common.persistence.PayeeItem;
 import com.cy.diakritis.common.persistence.TableBootstrap;
 import com.cy.diakritis.common.persistence.TableSchema;
@@ -33,7 +34,8 @@ public class DynamoConfig {
                     TableSchema.of(Tables.ACCOUNTS, "pk", "sk"),
                     TableSchema.of(Tables.PAYEES, "pk", "sk"),
                     TableSchema.of(Tables.DECISIONS, "pk", "sk"),
-                    TableSchema.of(Tables.CASES, "pk", "sk")));
+                    TableSchema.of(Tables.CASES, "pk", "sk"),
+                    TableSchema.of(Tables.OUTCOMES, "pk", "sk")));
         }
         return client;
     }
@@ -65,5 +67,11 @@ public class DynamoConfig {
     DynamoDbTable<CaseItem> caseTable(DynamoDbEnhancedClient enhanced) {
         return enhanced.table(Tables.CASES,
                 software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(CaseItem.class));
+    }
+
+    @Bean
+    DynamoDbTable<OutcomeItem> outcomeTable(DynamoDbEnhancedClient enhanced) {
+        return enhanced.table(Tables.OUTCOMES,
+                software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(OutcomeItem.class));
     }
 }

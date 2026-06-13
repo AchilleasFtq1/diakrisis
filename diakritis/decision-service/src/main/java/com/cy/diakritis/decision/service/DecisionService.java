@@ -24,6 +24,7 @@ import com.cy.diakritis.decision.repo.CaseRepository;
 import com.cy.diakritis.decision.repo.CounterpartyReputationRepository;
 import com.cy.diakritis.decision.repo.DecisionRepository;
 import com.cy.diakritis.decision.repo.ObservationRepository;
+import com.cy.diakritis.decision.config.EngineConfig.CoJudgeBudget;
 import com.cy.diakritis.engine.band.Weights;
 import com.cy.diakritis.engine.judge.AiCoJudge.Opinion;
 import com.cy.diakritis.engine.pipeline.CombineRule;
@@ -45,6 +46,12 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Orchestrates a single {@code POST /decision}: idempotency, scoring, AI-combine, lifecycle stamping
@@ -92,9 +99,21 @@ public class DecisionService {
     private final CaseRepository caseRepository;
     private final JsonMapper jsonMapper;
 
+    /** Hard per-decision co-judge budget (SDD §9.4 ≈600 ms); the engine never waits beyond it. */
+    private final CoJudgeBudget coJudgeBudget;
+
+    /**
+     * Dedicated virtual-thread executor on which the co-judge call runs concurrently with the engine
+     * pipeline. Virtual threads make a one-task-per-decision pool free; the task is abandoned (and the
+     * opinion treated as UNAVAILABLE) if it overruns the budget, so a slow model never stalls a
+     * decision.
+     */
+    private final ExecutorService coJudgeExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
     public DecisionService(ScoreEngine scoreEngine,
                            com.cy.diakritis.engine.judge.AiCoJudge aiCoJudge,
                            CombineRule combineRule,
+                           CoJudgeBudget coJudgeBudget,
                            RuntimeState runtimeState,
                            DynamoFeatureStore featureStore,
                            DynamoObservationsView observationsView,
@@ -110,6 +129,7 @@ public class DecisionService {
         this.scoreEngine = scoreEngine;
         this.aiCoJudge = aiCoJudge;
         this.combineRule = combineRule;
+        this.coJudgeBudget = coJudgeBudget;
         this.runtimeState = runtimeState;
         this.featureStore = featureStore;
         this.observationsView = observationsView;
@@ -143,8 +163,12 @@ public class DecisionService {
         ScoreResult result = scoreEngine.score(event, featureStore, runtimeState, posture,
                 observationsView, geoResolver, reputationView, now);
 
-        Opinion opinion = aiCoJudge.opine(event, result.engineVerdict());
+        Opinion opinion = opineWithinBudget(event, result.engineVerdict());
         Combined combined = combineRule.combine(result.engineVerdict(), opinion, result.reasonCode());
+        // §17: record the vulnerability-escalation basis on the decision when the engine escalated a
+        // flagged-vulnerable account's band. The engine has already applied the escalation to the
+        // verdict; here we surface why on the combined layer's basis for the audit trail.
+        combined = withVulnerabilityBasis(combined, result.vulnerabilityEscalated());
 
         long holdExpiresEpochMs = holdExpiryFor(combined.decision(), now);
         Lifecycle lifecycle = lifecycleFor(event.eventId(), combined.decision(), now, holdExpiresEpochMs);
@@ -188,6 +212,46 @@ public class DecisionService {
         return decision;
     }
 
+    // --- AI co-judge (parallel, time-boxed) ---------------------------------------------------
+
+    /**
+     * Obtain the AI co-judge opinion concurrently with the engine, bounded by the hard budget (SDD
+     * §9.4). The deterministic engine has already produced its authoritative verdict; the co-judge
+     * runs on a virtual thread and is given the engine's signal vector as input. The engine response
+     * never waits beyond {@link #coJudgeBudget}: on timeout, transport error or interruption the
+     * opinion is treated as UNAVAILABLE and the engine decision stands unchanged (combined == engine).
+     *
+     * <p>The co-judge implementation also self-bounds its HTTP exchange to the same budget; this
+     * outer {@code Future.get(...)} is the orchestration-level guarantee that no co-judge path — fast,
+     * slow, or hung — can ever delay the decision past the budget.
+     */
+    private Opinion opineWithinBudget(ActionEvent event, EngineVerdict engineVerdict) {
+        Future<Opinion> future = coJudgeExecutor.submit(() -> aiCoJudge.opine(event, engineVerdict));
+        try {
+            Opinion opinion = future.get(coJudgeBudget.budget().toMillis(), TimeUnit.MILLISECONDS);
+            return opinion == null ? Opinion.unavailable() : opinion;
+        } catch (TimeoutException ex) {
+            // Budget exceeded: abandon the in-flight call; the engine decision is already final.
+            future.cancel(true);
+            LOG.debug("Co-judge exceeded {} ms budget for event {}; UNAVAILABLE",
+                    coJudgeBudget.budget().toMillis(), event.eventId());
+            return Opinion.unavailable();
+        } catch (ExecutionException ex) {
+            LOG.debug("Co-judge task failed for event {}: {}; UNAVAILABLE", event.eventId(), ex.toString());
+            return Opinion.unavailable();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            future.cancel(true);
+            return Opinion.unavailable();
+        }
+    }
+
+    /** Stop the co-judge executor cleanly on context shutdown. */
+    @jakarta.annotation.PreDestroy
+    void shutdownCoJudgeExecutor() {
+        coJudgeExecutor.shutdownNow();
+    }
+
     // --- idempotent replay --------------------------------------------------------------------
 
     private Decision readStored(DecisionItem item, String eventId) {
@@ -209,6 +273,22 @@ public class DecisionService {
         // marginally larger 24h sum for this single pair until eviction, which never lowers a score.
         // We therefore intentionally leave the window as-is rather than mutating internal state.
         LOG.debug("Lost idempotency race for event {}; replaying stored decision", event.eventId());
+    }
+
+    /**
+     * Fold the §17 vulnerability-escalation basis into the combined decision. When the engine
+     * escalated a flagged-vulnerable account, we append {@link ScoreEngine#VULNERABILITY_ESCALATION_BASIS}
+     * to the existing basis (so a co-judge escalation basis, if any, is preserved alongside it).
+     */
+    private static Combined withVulnerabilityBasis(Combined combined, boolean vulnerabilityEscalated) {
+        if (!vulnerabilityEscalated) {
+            return combined;
+        }
+        String existing = combined.basis();
+        String basis = (existing == null || existing.isBlank())
+                ? ScoreEngine.VULNERABILITY_ESCALATION_BASIS
+                : existing + "; " + ScoreEngine.VULNERABILITY_ESCALATION_BASIS;
+        return new Combined(combined.decision(), basis, combined.reasonCode(), combined.reviewFlag());
     }
 
     // --- lifecycle ----------------------------------------------------------------------------
@@ -473,7 +553,19 @@ public class DecisionService {
         item.setResponseJson(responseJson);
         item.setLifecycleState(state.name());
         item.setHoldExpiresEpochMs(holdExpiresEpochMs);
+        item.setAmountCents(amountCentsOf(event));
         return item;
+    }
+
+    /** Action amount in euro-cents for the money-saved counter (0 for non-monetary actions). */
+    private static long amountCentsOf(ActionEvent event) {
+        return switch (event.payload()) {
+            case com.cy.diakritis.common.dto.TransferPayload t -> toCents(t.amountEur());
+            case com.cy.diakritis.common.dto.MassPaymentPayload m -> toCents(m.totalEur());
+            case DepositBreakPayload d -> toCents(d.principalEur());
+            case com.cy.diakritis.common.dto.LimitChangePayload l -> toCents(l.newLimitEur());
+            case com.cy.diakritis.common.dto.BeneficiaryAddPayload ignored -> 0L;
+        };
     }
 
     private static String initiatorSub(ActionEvent event, AuthPrincipal principal) {

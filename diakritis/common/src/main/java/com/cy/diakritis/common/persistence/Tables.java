@@ -16,6 +16,7 @@ public final class Tables {
     public static final String ACCOUNTS = "Accounts";
     public static final String PAYEES = "Payees";
     public static final String CASES = "Cases";
+    public static final String OUTCOMES = "Outcomes";
 
     private Tables() {
     }
