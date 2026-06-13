@@ -9,6 +9,7 @@ import software.amazon.awssdk.services.dynamodb.model.CreateTableRequest;
 import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest;
 import software.amazon.awssdk.services.dynamodb.model.KeySchemaElement;
 import software.amazon.awssdk.services.dynamodb.model.KeyType;
+import software.amazon.awssdk.services.dynamodb.model.ResourceInUseException;
 import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
 import software.amazon.awssdk.services.dynamodb.waiters.DynamoDbWaiter;
@@ -77,19 +78,31 @@ public final class TableBootstrap {
                     .build());
         }
 
-        client.createTable(CreateTableRequest.builder()
-                .tableName(schema.tableName())
-                .attributeDefinitions(attributes)
-                .keySchema(keys)
-                .billingMode(BillingMode.PAY_PER_REQUEST)
-                .build());
+        boolean created = true;
+        try {
+            client.createTable(CreateTableRequest.builder()
+                    .tableName(schema.tableName())
+                    .attributeDefinitions(attributes)
+                    .keySchema(keys)
+                    .billingMode(BillingMode.PAY_PER_REQUEST)
+                    .build());
+        } catch (ResourceInUseException alreadyCreated) {
+            // Startup race: another concurrently-starting service (or the ETL seed) created this table
+            // between our describeTable miss and now. That's fine — the table exists; just wait for it.
+            // (DynamoDB-Local returns a 400 "Cannot create preexisting table" as ResourceInUseException.)
+            created = false;
+        }
 
         try (DynamoDbWaiter waiter = client.waiter()) {
             waiter.waitUntilTableExists(DescribeTableRequest.builder()
                     .tableName(schema.tableName())
                     .build());
         }
-        LOG.info("Created DynamoDB table {} (pk={}, sk={})",
-                schema.tableName(), schema.partitionKey(), schema.sortKey());
+        if (created) {
+            LOG.info("Created DynamoDB table {} (pk={}, sk={})",
+                    schema.tableName(), schema.partitionKey(), schema.sortKey());
+        } else {
+            LOG.info("Table {} was created concurrently at startup; using the existing table", schema.tableName());
+        }
     }
 }
