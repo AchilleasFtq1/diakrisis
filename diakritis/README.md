@@ -128,7 +128,7 @@ mvn clean package
 
 # 3. Seed feature tables + demo from real Berka history
 java -jar etl/target/etl-*.jar \
-     --berka-dir data/raw/berka --ddb-endpoint http://localhost:8000 --demo
+     --berka-dir ../data/raw/berka --ddb-endpoint http://localhost:8000 --demo
 
 # 4. Run the services (set a >=32-char secret)
 export DIAKRISIS_JWT_SECRET='change-me-to-a-32-byte-minimum-secret!!'

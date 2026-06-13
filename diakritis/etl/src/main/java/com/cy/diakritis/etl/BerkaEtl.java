@@ -36,7 +36,7 @@ import java.util.Map;
  *
  * <p>Arguments:
  * <ul>
- *   <li>{@code --berka-dir <dir>}    directory containing the Berka TSVs (default {@code data/raw/berka}).</li>
+ *   <li>{@code --berka-dir <dir>}    directory containing the Berka TSVs (default {@code ../data/raw/berka}).</li>
  *   <li>{@code --ddb-endpoint <url>} local DynamoDB endpoint (default {@code http://localhost:8000}).</li>
  *   <li>{@code --rebuild-features}   rebuild the real feature tables from the stream (default on).</li>
  *   <li>{@code --demo}               also write the demonstration seed.</li>
@@ -293,7 +293,9 @@ public final class BerkaEtl {
     /** Parsed CLI arguments with contract defaults. */
     private record Args(Path berkaDir, String ddbEndpoint, boolean rebuildFeatures, boolean demo) {
 
-        private static final String DEFAULT_BERKA_DIR = "data/raw/berka";
+        // data/ lives at the repo root (a sibling of diakritis/); the jar is normally run from
+        // diakritis/, so the default reaches one level up. Override with --berka-dir for other layouts.
+        private static final String DEFAULT_BERKA_DIR = "../data/raw/berka";
         private static final String DEFAULT_ENDPOINT = "http://localhost:8000";
 
         static Args parse(String[] args) {

@@ -52,9 +52,10 @@ services:
     depends_on:
       dynamodb:
         condition: service_healthy
-    # The Berka TSVs are mounted read-only (never copied into the image).
+    # The Berka TSVs are mounted read-only (never copied into the image). data/ lives at the repo
+    # root (a sibling of diakritis/), so the mount reaches one level up from this compose file.
     volumes:
-      - ./data/raw/berka:/data/berka:ro
+      - ../data/raw/berka:/data/berka:ro
     command:
       - "--berka-dir"
       - "/data/berka"

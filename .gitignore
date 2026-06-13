@@ -5,7 +5,7 @@
 .claude/
 
 # ── Large third-party datasets (not redistributable; fetch via data/fetch_kaggle.sh) ──
-diakritis/data/raw/
+data/raw/
 
 # ── Build outputs ──
 **/build/

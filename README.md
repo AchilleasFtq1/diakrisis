@@ -31,13 +31,17 @@ nothing; a new device **and** new payee **and** drain **and** new geo together i
 ## What's in here
 
 The **product is the fraud-decision system**, not a bank. The bank is a throwaway test consumer
-that lives outside the product to prove the integration. So the repo is three top-level pieces:
+that lives outside the product to prove the integration. The repo keeps the product code
+(`diakritis/`) cleanly separate from the data, specs, and the dummy consumer:
 
 ```
 diakrisis/
 ├── diakritis/          the PRODUCT — the fraud-decision system (reactor: gateway + 3 services + libs)
 ├── demo-bank/          a standalone DUMMY bank (SQLite + MVC) that calls the product over HTTP
-└── diakrisis-models/   pre-trained M1 model artifacts — loaded at boot, never retrained
+├── diakrisis-models/   pre-trained M1 model artifacts — loaded at boot, never retrained
+├── data/               raw datasets (Berka behavioural history, IEEE-CIS, ULB) — not product code
+├── docs/               the SDD + design notes
+└── qa/                 the golden-path T-case specs
 ```
 
 **The product (`diakritis/`)** — every external call enters through the gateway; the three
@@ -56,11 +60,10 @@ services behind it are not reachable directly (in Docker they publish no host po
 | `engine/` | the decision pipeline: signals, typologies, bands, the Smile M1 loader, the KDTree/Qdrant M2 index, the combine rule. Pure library — testable without a web server. |
 | `common/` | the cross-service contract: DTO records (`ActionEvent`, `Decision`, …), JWT, DynamoDB item beans + config. Shared so the services never drift. |
 
-**Tooling & data:**
+**Tooling:**
 | Path | Role |
 |---|---|
-| `etl/` | offline CLI — streams Berka history into the DynamoDB feature tables and writes the demo seed. Not on the hot path. |
-| `data/` · `docs/` · `qa/` | Berka/IEEE-CIS raw data · the SDD · the golden-path T-case specs |
+| `etl/` | offline CLI — streams Berka history (from the repo-root `data/`) into the DynamoDB feature tables and writes the demo seed. Not on the hot path. |
 
 **The dummy bank (`demo-bank/`)** — a separate Spring Boot app (SQLite + Thymeleaf MVC, port
 **9000**), **not** part of the reactor and depending on nothing from it. It builds an `ActionEvent`
@@ -100,7 +103,7 @@ cd diakritis
 docker compose up -d dynamodb                       # DynamoDB Local :8000
 mvn clean package                                   # build everything (Java 26)
 java -jar etl/target/etl.jar \                      # seed from real Berka history
-     --berka-dir data/raw/berka --ddb-endpoint http://localhost:8000 --demo
+     --berka-dir ../data/raw/berka --ddb-endpoint http://localhost:8000 --demo
 export DIAKRISIS_JWT_SECRET='change-me-to-a-32-byte-minimum-secret!!'
 java -jar iam-service/target/iam-service-*.jar              # :8083 (mints tokens)
 java -jar decision-service/target/decision-service-*.jar    # :8081
@@ -113,7 +116,7 @@ Per-service standalone builds and the full module detail are in `diakritis/READM
 
 ## Golden path (T1–T15)
 
-`POST /decision` is pinned to exact verdicts (`diakritis/qa/golden-path-scenarios.md`):
+`POST /decision` is pinned to exact verdicts (`qa/golden-path-scenarios.md`):
 established payees → `ALLOW` + SCA-exempt · anomalous amount → `CONFIRM` · invoice redirection,
 kill-chain drain, romance escalation, alias re-point, salami, cross-account moat → `HOLD` ·
 stacked signals / mule fan-out → `BLOCK` · payroll batch → `REQUIRE_APPROVAL` with the bad line
