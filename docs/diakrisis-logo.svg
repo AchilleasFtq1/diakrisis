@@ -1,0 +1,21 @@
+<svg width="560" height="140" viewBox="0 0 560 140" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diakrisis">
+  <title>Diakrisis</title>
+  <!-- self-contained dark "control-room" panel so the mark + light wordmark stay legible on any
+       README background (GitHub light or dark theme) -->
+  <rect x="2" y="2" width="556" height="136" rx="18" fill="#0C1015" stroke="#232B36" stroke-width="1.5"/>
+
+  <!-- broken-ring mark: a cyan ring with a red broken segment — the kill chain, interrupted -->
+  <g transform="translate(74 70) rotate(-28)">
+    <circle r="40" fill="none" stroke="#4CC2D6" stroke-width="9" stroke-linecap="round"
+            stroke-dasharray="166 85.3" stroke-dashoffset="0"/>
+    <circle r="40" fill="none" stroke="#F85149" stroke-width="9" stroke-linecap="round"
+            stroke-dasharray="60 191.3" stroke-dashoffset="-176"/>
+    <circle r="6" fill="#0C1015" stroke="#2B3440" stroke-width="2"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="140" y="66" font-family="'IBM Plex Mono','SFMono-Regular',ui-monospace,monospace"
+        font-size="34" font-weight="600" letter-spacing="6" fill="#E6EDF3">DIAKRISIS</text>
+  <text x="142" y="94" font-family="'IBM Plex Sans',system-ui,sans-serif"
+        font-size="13.5" letter-spacing="2.5" fill="#6FD0E0">REAL-TIME SCAM DECISION ENGINE</text>
+</svg>

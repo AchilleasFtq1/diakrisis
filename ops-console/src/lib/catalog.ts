@@ -144,11 +144,11 @@ export interface OutcomeDoc {
 }
 
 export const OUTCOME_BANDS: OutcomeDoc[] = [
-  { outcome: 'ALLOW', band: '0–29', friction: 'None — SCA-exempt where regulation permits (PSD2 RTS Art. 18 TRA).', hex: '#3fb950' },
-  { outcome: 'CONFIRM', band: '30–59', friction: 'One specific sentence + one explicit tap (a purpose prompt).', hex: '#d29922' },
-  { outcome: 'REQUIRE_APPROVAL', band: 'policy', friction: 'A second authorised person must approve (four-eyes). Replaces the banded outcome; initiator cannot self-approve.', hex: '#a371f7' },
-  { outcome: 'HOLD', band: '60–84', friction: 'Cooling-off (30 min default) + a scam-pattern-naming warning + one-tap cancel. Never auto-executes.', hex: '#db6d28' },
-  { outcome: 'BLOCK', band: '85+', friction: 'Stopped; manual review. Rare by design.', hex: '#f85149' },
+  { outcome: 'ALLOW', band: '0–29', friction: 'Execute silently; SCA-exempt where regulation permits (PSD2 RTS Art. 18 TRA) — the product working invisibly.', hex: '#3fb950' },
+  { outcome: 'CONFIRM', band: '30–59', friction: 'Step-up re-authentication + a one-sentence, one-tap purpose prompt.', hex: '#d29922' },
+  { outcome: 'REQUIRE_APPROVAL', band: 'policy', friction: 'A second authorised person — or the call-center / admin phones the customer — must approve (four-eyes). Replaces the banded outcome; the initiator cannot self-approve.', hex: '#a371f7' },
+  { outcome: 'HOLD', band: '60–84', friction: 'Freeze (never auto-sends), name the scam pattern to the customer, one-tap cancel; release later needs an extra check.', hex: '#db6d28' },
+  { outcome: 'BLOCK', band: '85+', friction: 'Stopped; routed to manual fraud review. Rare by design.', hex: '#f85149' },
 ];
 
 export interface TypologyDoc {
