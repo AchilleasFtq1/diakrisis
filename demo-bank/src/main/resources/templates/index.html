@@ -2,37 +2,48 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8"/>
-    <title>Demo Bank — Diakrisis test consumer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Meridian — secured by Diakrisis</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet"/>
     <link rel="stylesheet" th:href="@{/styles.css}"/>
 </head>
 <body>
-<header>
-    <h1>Demo Bank</h1>
-    <p class="sub">A standalone test consumer of the Diakrisis fraud decision API.</p>
-</header>
+<div class="topbar">
+    <div class="brand">
+        <a th:href="@{/}"><span class="mark">Mer<em>i</em>dian</span></a>
+        <span class="tag">Private Bank</span>
+    </div>
+    <span class="trust-chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+        Secured by Diakrisis
+    </span>
+</div>
 
-<main>
-    <h2>Demo accounts</h2>
-    <table>
-        <thead>
-        <tr>
-            <th>Account</th>
-            <th>Name</th>
-            <th>Owner</th>
-            <th class="num">Balance (EUR)</th>
-            <th></th>
-        </tr>
-        </thead>
-        <tbody>
-        <tr th:each="acct : ${accounts}">
-            <td th:text="${acct.id}">acc-A</td>
-            <td th:text="${acct.displayName}">Demo Retail Account A</td>
-            <td th:text="${acct.ownerUser}">customer-A</td>
-            <td class="num" th:text="${acct.availableBalanceEur}">4500.00</td>
-            <td><a class="btn" th:href="@{'/accounts/' + ${acct.id}}">Open</a></td>
-        </tr>
-        </tbody>
-    </table>
-</main>
+<div class="wrap">
+    <header class="page-head">
+        <p class="eyebrow">Demonstration banking console</p>
+        <h1>Choose an account to bank as.</h1>
+        <p class="sub">Meridian is a standalone test bank. Every payment you make here is screened
+            <strong>live</strong> by the Diakrisis fraud-decision API before it moves — and the bank
+            does exactly what the verdict says.</p>
+    </header>
+
+    <section class="account-grid">
+        <article class="acct-card" th:each="acct : ${accounts}">
+            <span class="acct-id" th:text="${acct.id}">acc-A</span>
+            <span class="acct-name" th:text="${acct.displayName}">Demo Retail Account A</span>
+            <span class="acct-owner">Held by <strong th:text="${acct.ownerUser}">customer-A</strong></span>
+            <span class="acct-bal"><span th:text="${acct.availableBalanceEur}">4500.00</span><span class="cur">EUR</span></span>
+            <a class="btn" th:href="@{'/accounts/' + ${acct.id}}">Open account →</a>
+        </article>
+    </section>
+</div>
+
+<footer class="footer">
+    <span>MERIDIAN — a demo bank. Payments are screened by <strong>Diakrisis</strong> before they execute.</span>
+    <span>Decision API via gateway <code>:8080</code></span>
+</footer>
 </body>
 </html>

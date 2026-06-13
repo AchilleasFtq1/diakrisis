@@ -2,19 +2,41 @@
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8"/>
-    <title>Demo Bank — error</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Meridian — error</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet"/>
     <link rel="stylesheet" th:href="@{/styles.css}"/>
 </head>
 <body>
-<header>
-    <h1><a th:href="@{/}">Demo Bank</a></h1>
-</header>
-<main>
-    <section class="verdict block">
-        <div class="verdict-head"><span class="badge" th:text="${errorTitle}">Error</span></div>
-        <p class="applied" th:text="${errorMessage}">Something went wrong.</p>
+<div class="topbar">
+    <div class="brand">
+        <a th:href="@{/}"><span class="mark">Mer<em>i</em>dian</span></a>
+        <span class="tag">Private Bank</span>
+    </div>
+    <span class="trust-chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+        Secured by Diakrisis
+    </span>
+</div>
+
+<div class="wrap">
+    <section class="verdict-hero block">
+        <div class="bar"></div>
+        <div class="body">
+            <div class="verdict-row">
+                <span class="badge" th:text="${errorTitle}">Error</span>
+            </div>
+            <p class="verdict-msg" th:text="${errorMessage}">Something went wrong.</p>
+        </div>
     </section>
-    <p><a class="btn" th:href="@{/}">Back to accounts</a></p>
-</main>
+    <p class="mt-md"><a class="btn ghost" th:href="@{/}">← Back to accounts</a></p>
+</div>
+
+<footer class="footer">
+    <span>MERIDIAN — a demo bank. Payments are screened by <strong>Diakrisis</strong> before they execute.</span>
+    <span>Decision API via gateway <code>:8080</code></span>
+</footer>
 </body>
 </html>
