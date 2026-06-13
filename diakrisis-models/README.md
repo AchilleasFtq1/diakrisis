@@ -1,4 +1,4 @@
-# Diakrisis — pretrained ML artifacts
+# Diakrisis — ML model artifacts
 
 > The artifacts are built inside the build window
 > (Sat 12:30 → Sun 12:30) with `training/TrainM1.java` — the pipeline is

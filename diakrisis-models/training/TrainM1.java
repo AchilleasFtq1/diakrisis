@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Full M1 training in the event stack (Smile GBT), producing the pretrained
+ * Full M1 training in the event stack (Smile GBT), producing the model
  * artifact set under models/m1/:
  *   m1.model            — serialized GradientTreeBoost
  *   isotonic.csv        — PAV calibration step function (threshold,value)
@@ -151,7 +151,7 @@ public final class TrainM1 {
 
         Files.writeString(outDir.resolve("metrics_m1_smile.json"), String.format(Locale.ROOT, """
                 {
-                  "run": "smile-pretrain",
+                  "run": "smile-train",
                   "disclaimer": "built and committed inside the event window",
                   "config": {"trees": %d, "max_depth": %d, "max_nodes": %d, "node_size": %d, "shrinkage": %.2f},
                   "train_seconds": %.1f,

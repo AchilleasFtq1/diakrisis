@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-event input fetch (STEP A) — downloads raw PUBLIC datasets from Kaggle.
+# Input fetch (STEP A) — downloads raw PUBLIC datasets from Kaggle.
 # Requires: KAGGLE_API_TOKEN env var (token with download scope) and, for IEEE-CIS,
 # the competition rules accepted at https://www.kaggle.com/c/ieee-fraud-detection/rules
 # ULB creditcard is NOT fetched here — already local from OpenML (data/raw/ulb/creditcard.csv).

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Diakrisis is a fraud-detection engine (hackathon build window Sat 12:30 → Sun 12:30). This directory is an **Eclipse workspace** (`.metadata/` at root) holding two distinct, currently-unlinked pieces:
 
 - **`diakritis/`** — the Spring Boot application (the live engine). Right now it is a bare Spring Initializr skeleton: only `DiakritisApplication.java` exists. This is where the engine, signals, and API get built.
-- **`diakrisis-models/`** — **not a build module.** Pretrained ML artifacts plus the standalone training/eval source. It defines the contracts the Spring app must honor at serve time. Nothing here is on the Gradle classpath; the `.java` files are reference implementations to be ported into `diakritis/`.
+- **`diakrisis-models/`** — **not a build module.** ML model artifacts plus the standalone training/eval source. It defines the contracts the Spring app must honor at serve time. Nothing here is on the Gradle classpath; the `.java` files are reference implementations to be ported into `diakritis/`.
 
 > Naming gotcha: the product/SDD is **"diakrisis"** but the Spring module, root package, and artifact are **"diakritis"** (`com.cy.diakritis`). The original package `com.cy diakritis` was invalid; it became `com.cy.diakritis` (group `com.cy` in `build.gradle`). Don't "fix" the spelling — match whatever a given file already uses.
 
@@ -44,5 +44,5 @@ The engine combines three signals; weights are capped so any one (or all ML sign
 
 ## Working agreements
 
-- The Spring app is JVM-only by design (SDD mandates pure-JVM/Smile). Python only ever existed as a pre-event rehearsal harness and has been removed by request — do not reintroduce a Python runtime step. The Saturday plan is to port `TrainM1.java` and `Features.java` so the pipeline reads IEEE-CIS directly.
+- The Spring app is JVM-only by design (SDD mandates pure-JVM/Smile). No Python runtime step — do not introduce one. The plan is to port `TrainM1.java` and `Features.java` so the pipeline reads IEEE-CIS directly.
 - `diakrisis-models/m1/*` and `m2/*` are committed artifacts treated as test oracles (`val_scores.csv` drives case tests). Don't regenerate or overwrite them casually.

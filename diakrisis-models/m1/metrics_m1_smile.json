@@ -1,5 +1,5 @@
 {
-  "run": "smile-pretrain",
+  "run": "smile-train",
   "disclaimer": "built and committed inside the event window",
   "config": {"trees": 300, "max_depth": 6, "max_nodes": 31, "node_size": 20, "shrinkage": 0.10},
   "train_seconds": 53.2,
