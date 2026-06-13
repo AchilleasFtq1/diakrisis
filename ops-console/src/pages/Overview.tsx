@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { PageHead } from '../components/Layout';
-import { StatCard, LiveToggle, Panel } from '../components/widgets';
+import { StatCard, LiveToggle, Panel, Pagination, SearchInput } from '../components/widgets';
 import { OutcomePill, ScoreMeter, NeedsReview, Mono } from '../components/primitives';
 import { euro, timeAgo } from '../lib/format';
-import type { Outcome } from '../lib/types';
+import type { FeedEntry, Outcome } from '../lib/types';
 
 const OUTCOME_HEX: Record<string, string> = {
   ALLOW: '#3FB950',
@@ -16,11 +16,25 @@ const OUTCOME_HEX: Record<string, string> = {
   BLOCK: '#F85149',
 };
 const ORDER: Outcome[] = ['ALLOW', 'CONFIRM', 'REQUIRE_APPROVAL', 'HOLD', 'BLOCK'];
+const PAGE_SIZE = 15;
+
+function matchesQuery(e: FeedEntry, q: string): boolean {
+  if (!q) return true;
+  const hay = [e.account_id, e.event_type, e.reason_code, e.initiator_sub, ...(e.typologies ?? [])]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return hay.includes(q.toLowerCase());
+}
 
 export default function Overview() {
   const navigate = useNavigate();
   const [live, setLive] = useState(true);
   const interval = live ? 4000 : false;
+
+  const [outcomes, setOutcomes] = useState<Set<Outcome>>(new Set());
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
 
   const counters = useQuery({ queryKey: ['counters'], queryFn: api.counters, refetchInterval: interval });
   const feed = useQuery({ queryKey: ['feed'], queryFn: api.feed, refetchInterval: interval });
@@ -29,6 +43,28 @@ export default function Overview() {
   const total = c?.total ?? 0;
   const money = c ? euro(c.money_saved_cents / 100) : '—';
   const slaOk = (c?.p50_latency_ms ?? 0) < 50;
+
+  const filtered = useMemo(() => {
+    const rows = feed.data ?? [];
+    return rows.filter((e) => (outcomes.size === 0 || (e.verdict && outcomes.has(e.verdict))) && matchesQuery(e, query));
+  }, [feed.data, outcomes, query]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const toggleOutcome = (o: Outcome) => {
+    setOutcomes((prev) => {
+      const next = new Set(prev);
+      next.has(o) ? next.delete(o) : next.add(o);
+      return next;
+    });
+    setPage(1);
+  };
+  const onQuery = (v: string) => {
+    setQuery(v);
+    setPage(1);
+  };
 
   return (
     <div>
@@ -77,7 +113,54 @@ export default function Overview() {
         </div>
 
         {/* live decision feed */}
-        <Panel title="Live decision feed" right={feed.isFetching && live ? <span className="font-mono text-[10px] text-cyan">syncing…</span> : null}>
+        <Panel
+          title="Live decision feed"
+          right={
+            <div className="flex items-center gap-3">
+              {feed.isFetching && live && <span className="font-mono text-[10px] text-cyan">syncing…</span>}
+              <SearchInput value={query} onChange={onQuery} placeholder="account · type · typology…" />
+            </div>
+          }
+        >
+          {/* outcome filter chips */}
+          <div className="flex items-center gap-1.5 flex-wrap mb-3.5">
+            {ORDER.map((o) => {
+              const active = outcomes.has(o);
+              const hex = OUTCOME_HEX[o];
+              return (
+                <button
+                  key={o}
+                  onClick={() => toggleOutcome(o)}
+                  className="font-mono text-[10.5px] px-2 py-1 rounded border transition-colors"
+                  style={
+                    active
+                      ? { color: hex, background: `${hex}1f`, borderColor: `${hex}66` }
+                      : { color: '#5C6773', background: 'transparent', borderColor: '#232B36' }
+                  }
+                >
+                  {o}
+                </button>
+              );
+            })}
+            <span className="font-mono text-[10.5px] text-muted ml-1">
+              {filtered.length === (feed.data?.length ?? 0)
+                ? `${filtered.length} shown`
+                : `${filtered.length} of ${feed.data?.length ?? 0}`}
+            </span>
+            {(outcomes.size > 0 || query) && (
+              <button
+                onClick={() => {
+                  setOutcomes(new Set());
+                  setQuery('');
+                  setPage(1);
+                }}
+                className="font-mono text-[10.5px] text-cyan hover:text-cyan-2 ml-1"
+              >
+                clear
+              </button>
+            )}
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
@@ -93,7 +176,7 @@ export default function Overview() {
                 </tr>
               </thead>
               <tbody>
-                {feed.data?.map((e) => (
+                {pageRows.map((e) => (
                   <tr
                     key={e.event_id}
                     onClick={() => navigate(`/decisions/${encodeURIComponent(e.event_id)}`)}
@@ -117,12 +200,20 @@ export default function Overview() {
                     <td className="py-2.5 pr-3 font-mono text-[11px] text-fg-2">{e.lifecycle_state}</td>
                   </tr>
                 ))}
-                {feed.data?.length === 0 && (
-                  <tr><td colSpan={8} className="py-8 text-center text-muted">No decisions yet — drive a payment in the bank.</td></tr>
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="py-8 text-center text-muted">
+                      {(feed.data?.length ?? 0) === 0
+                        ? 'No decisions yet — drive a payment in the bank.'
+                        : 'No decisions match the current filters.'}
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
           </div>
+
+          <Pagination page={safePage} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
         </Panel>
       </div>
     </div>

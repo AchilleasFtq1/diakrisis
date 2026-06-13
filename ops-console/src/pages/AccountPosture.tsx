@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Smartphone, Globe, Network, Snowflake } from 'lucide-react';
 import { api } from '../lib/api';
 import { PageHead } from '../components/Layout';
-import { Panel, StatCard } from '../components/widgets';
+import { Panel, StatCard, Pagination } from '../components/widgets';
 import { OutcomePill, ScoreMeter, NeedsReview, Mono } from '../components/primitives';
 import { KillChainTimeline } from '../components/KillChainTimeline';
 import { euro, timeAgo, clock } from '../lib/format';
@@ -42,8 +43,11 @@ function AccountPicker() {
   );
 }
 
+const HISTORY_PAGE_SIZE = 10;
+
 export default function AccountPosture() {
   const { id } = useParams();
+  const [page, setPage] = useState(1);
   const account = useQuery({
     queryKey: ['account', id],
     queryFn: () => api.account(id!),
@@ -54,6 +58,10 @@ export default function AccountPosture() {
 
   const a = account.data;
   const p = a?.posture;
+  const history = a?.history ?? [];
+  const pageCount = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const historyPage = history.slice((safePage - 1) * HISTORY_PAGE_SIZE, safePage * HISTORY_PAGE_SIZE);
 
   return (
     <div>
@@ -105,10 +113,13 @@ export default function AccountPosture() {
             {a ? <KillChainTimeline account={a} /> : <div className="text-[12px] text-muted">Loading…</div>}
           </Panel>
 
-          <Panel title="Decision history">
+          <Panel
+            title="Decision history"
+            right={history.length > 0 ? <span className="font-mono text-[10px] text-muted">{history.length} events</span> : null}
+          >
             <table className="w-full text-[12px]">
               <tbody>
-                {a?.history.map((e) => (
+                {historyPage.map((e) => (
                   <tr key={e.event_id} className="border-b border-line/50 last:border-0">
                     <td className="py-2 pr-2 text-muted whitespace-nowrap">{clock(e.created_at)}</td>
                     <td className="py-2 pr-2 text-fg-2">{e.event_type ?? '—'}</td>
@@ -117,11 +128,12 @@ export default function AccountPosture() {
                     <td className="py-2"><ScoreMeter score={e.score} /></td>
                   </tr>
                 ))}
-                {a?.history.length === 0 && (
+                {history.length === 0 && (
                   <tr><td className="py-6 text-center text-muted" colSpan={5}>No history.</td></tr>
                 )}
               </tbody>
             </table>
+            <Pagination page={safePage} pageSize={HISTORY_PAGE_SIZE} total={history.length} onPage={setPage} />
           </Panel>
         </div>
       </div>

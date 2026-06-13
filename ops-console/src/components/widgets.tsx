@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pause, Play } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pause, Play, Search, X } from 'lucide-react';
 import type { Signal } from '../lib/types';
 
 export function StatCard({
@@ -70,6 +70,73 @@ export function SignalBar({ signal, max }: { signal: Signal; max: number }) {
         {negative ? '' : '+'}
         {signal.contribution.toFixed(1)}
       </span>
+    </div>
+  );
+}
+
+/** Client-side pager over an already-fetched list. Renders nothing when a single page suffices. */
+export function Pagination({
+  page,
+  pageSize,
+  total,
+  onPage,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPage: (p: number) => void;
+}) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (pageCount <= 1) return null;
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+  const btn = 'flex items-center gap-1 px-2.5 py-1 rounded border border-line bg-panel-2 text-fg-2 hover:text-fg hover:border-line-2 disabled:opacity-40 disabled:cursor-not-allowed';
+  return (
+    <div className="flex items-center justify-between mt-3.5 font-mono text-[11px] text-muted">
+      <span>{from}–{to} of {total}</span>
+      <div className="flex items-center gap-2">
+        <button className={btn} disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          <ChevronLeft size={13} /> Prev
+        </button>
+        <span className="text-fg-2">page {page} / {pageCount}</span>
+        <button className={btn} disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
+          Next <ChevronRight size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Debounce-free search box — caller filters synchronously over the fetched list. */
+export function SearchInput({
+  value,
+  onChange,
+  placeholder = 'Search…',
+  width = 'w-60',
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  width?: string;
+}) {
+  return (
+    <div className={`relative ${width}`}>
+      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="h-[34px] w-full rounded-lg bg-panel-2 border border-line pl-8 pr-7 font-mono text-[12px] text-fg outline-none focus:border-cyan placeholder:text-muted"
+      />
+      {value && (
+        <button
+          onClick={() => onChange('')}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-fg"
+          title="Clear"
+        >
+          <X size={13} />
+        </button>
+      )}
     </div>
   );
 }

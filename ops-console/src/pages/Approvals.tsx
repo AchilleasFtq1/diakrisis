@@ -1,16 +1,23 @@
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Lock, X } from 'lucide-react';
 import { api } from '../lib/api';
 import { loadSession } from '../lib/auth';
 import { PageHead } from '../components/Layout';
-import { Panel } from '../components/widgets';
+import { Panel, Pagination, SearchInput } from '../components/widgets';
 import { Mono } from '../components/primitives';
 import { euro, countdown } from '../lib/format';
+
+const PAGE_SIZE = 8;
 
 export default function Approvals() {
   const qc = useQueryClient();
   const me = loadSession()?.sub;
   const approvals = useQuery({ queryKey: ['approvals'], queryFn: api.approvals, refetchInterval: 5000 });
+
+  const [query, setQuery] = useState('');
+  const [mineOnly, setMineOnly] = useState(false);
+  const [page, setPage] = useState(1);
 
   const act = useMutation({
     mutationFn: ({ id, kind }: { id: string; kind: 'approve' | 'reject' }) =>
@@ -18,13 +25,63 @@ export default function Approvals() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['approvals'] }),
   });
 
+  const rows = approvals.data ?? [];
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    return rows.filter((a) => {
+      if (mineOnly && a.initiator_user_id !== me) return false;
+      if (!q) return true;
+      return [a.event_id, a.initiator_user_id, a.state].filter(Boolean).join(' ').toLowerCase().includes(q);
+    });
+  }, [rows, query, mineOnly, me]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   return (
     <div>
-      <PageHead eyebrow="Four-eyes" title="Approval queue" />
+      <PageHead
+        eyebrow="Four-eyes"
+        title="Approval queue"
+        right={
+          <SearchInput
+            value={query}
+            onChange={(v) => {
+              setQuery(v);
+              setPage(1);
+            }}
+            placeholder="initiator · event id…"
+          />
+        }
+      />
       <div className="px-8 py-6">
-        <Panel title="Actions awaiting a second authoriser">
+        <Panel
+          title="Actions awaiting a second authoriser"
+          right={
+            <div className="flex items-center gap-2 font-mono text-[10.5px]">
+              <button
+                onClick={() => {
+                  setMineOnly((v) => !v);
+                  setPage(1);
+                }}
+                className="px-2 py-1 rounded border transition-colors"
+                style={
+                  mineOnly
+                    ? { color: '#A371F7', background: 'rgba(163,113,247,.12)', borderColor: 'rgba(163,113,247,.4)' }
+                    : { color: '#5C6773', background: 'transparent', borderColor: '#232B36' }
+                }
+              >
+                initiated by me
+              </button>
+              <span className="text-muted">
+                {filtered.length === rows.length ? `${rows.length} waiting` : `${filtered.length} of ${rows.length}`}
+              </span>
+            </div>
+          }
+        >
           <div className="space-y-3">
-            {approvals.data?.map((a) => {
+            {pageRows.map((a) => {
               const ownAction = me && me === a.initiator_user_id; // four-eyes: can't approve your own
               return (
                 <div key={a.event_id} className="border border-line rounded-lg p-4 bg-panel-2">
@@ -77,10 +134,13 @@ export default function Approvals() {
                 </div>
               );
             })}
-            {approvals.data?.length === 0 && (
-              <div className="py-10 text-center text-muted text-[13px]">No actions awaiting approval.</div>
+            {filtered.length === 0 && (
+              <div className="py-10 text-center text-muted text-[13px]">
+                {rows.length === 0 ? 'No actions awaiting approval.' : 'No actions match the current filters.'}
+              </div>
             )}
           </div>
+          <Pagination page={safePage} pageSize={PAGE_SIZE} total={filtered.length} onPage={setPage} />
         </Panel>
       </div>
     </div>
