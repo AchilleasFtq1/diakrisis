@@ -89,6 +89,16 @@
         </dependency>
 
         <!--
+          Full Spring Security filter chain: stateless JWT auth (SecurityConfig), method security
+          (@PreAuthorize on the admin console), and the JSON 401/403 handlers. The shared
+          JwtAuthenticationFilter (in common) binds the SecurityContextHolder from the Bearer token.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!--
           Actuator exposes /actuator/health, consumed by the docker-compose healthcheck and bypassed
           by the JWT filter's public-path rule (/actuator/**). application.yml already configures the
           management endpoints; this starter activates them.

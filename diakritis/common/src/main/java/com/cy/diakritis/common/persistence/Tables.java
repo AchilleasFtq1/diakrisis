@@ -17,6 +17,8 @@ public final class Tables {
     public static final String PAYEES = "Payees";
     public static final String CASES = "Cases";
     public static final String OUTCOMES = "Outcomes";
+    public static final String USERS = "Users";
+    public static final String REFRESH_TOKENS = "RefreshTokens";
 
     private Tables() {
     }

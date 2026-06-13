@@ -98,6 +98,29 @@
             <artifactId>jakarta.validation-api</artifactId>
         </dependency>
 
+        <!--
+          BCrypt password hashing (PasswordHasher) plus the Spring Security primitives the shared
+          JwtAuthenticationFilter binds: Authentication / SecurityContextHolder / GrantedAuthority
+          (spring-security-core) and OncePerRequestFilter integration (spring-security-web). The full
+          filter-chain wiring (SecurityFilterChain, entry point, access-denied handler) lives in each
+          deployable via spring-boot-starter-security; the library itself stays starter-free so a
+          non-web consumer (etl) never triggers security autoconfiguration. spring-security-web is
+          'provided' — the running app supplies it transitively via its starter.
+        -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-web</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- DynamoDB enhanced client -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>

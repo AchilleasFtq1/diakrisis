@@ -22,6 +22,13 @@ public class JwtService {
     static final String CLAIM_ROLE = "role";
     static final String CLAIM_ACCOUNT_ID = "accountId";
 
+    /**
+     * Default lifetime for access tokens. Access tokens are intentionally short-lived; clients hold a
+     * long-lived opaque refresh token (persisted, revocable) and call {@code /auth/refresh} to mint a
+     * fresh access token when this expires.
+     */
+    public static final Duration ACCESS_TOKEN_TTL = Duration.ofMinutes(15);
+
     private static final int MIN_SECRET_BYTES = 32;
 
     private final SecretKey signingKey;
@@ -61,6 +68,18 @@ public class JwtService {
                 .expiration(Date.from(expiry))
                 .signWith(signingKey, Jwts.SIG.HS256)
                 .compact();
+    }
+
+    /**
+     * Issues a short-lived access token using {@link #ACCESS_TOKEN_TTL}.
+     *
+     * @param sub       the subject (user id); must not be null
+     * @param role      the caller's role; must not be null
+     * @param accountId the bound account id, may be null for non-account roles (OPS/APPROVER)
+     * @return the compact serialized JWT
+     */
+    public String issueAccessToken(String sub, Role role, String accountId) {
+        return issue(sub, role, accountId, ACCESS_TOKEN_TTL);
     }
 
     /**

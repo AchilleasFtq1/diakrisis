@@ -7,6 +7,8 @@ import com.cy.diakritis.common.persistence.DynamoConfigSupport;
 import com.cy.diakritis.common.persistence.DynamoProperties;
 import com.cy.diakritis.common.persistence.OutcomeItem;
 import com.cy.diakritis.common.persistence.PayeeItem;
+import com.cy.diakritis.common.persistence.RefreshTokenItem;
+import com.cy.diakritis.common.persistence.UserItem;
 import com.cy.diakritis.common.persistence.TableBootstrap;
 import com.cy.diakritis.common.persistence.TableSchema;
 import com.cy.diakritis.common.persistence.Tables;
@@ -35,7 +37,10 @@ public class DynamoConfig {
                     TableSchema.of(Tables.PAYEES, "pk", "sk"),
                     TableSchema.of(Tables.DECISIONS, "pk", "sk"),
                     TableSchema.of(Tables.CASES, "pk", "sk"),
-                    TableSchema.of(Tables.OUTCOMES, "pk", "sk")));
+                    TableSchema.of(Tables.OUTCOMES, "pk", "sk"),
+                    // Identity tables are partition-key-only (USER#<username> / RT#<tokenId>).
+                    TableSchema.of(Tables.USERS, "pk", null),
+                    TableSchema.of(Tables.REFRESH_TOKENS, "pk", null)));
         }
         return client;
     }
@@ -73,5 +78,17 @@ public class DynamoConfig {
     DynamoDbTable<OutcomeItem> outcomeTable(DynamoDbEnhancedClient enhanced) {
         return enhanced.table(Tables.OUTCOMES,
                 software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(OutcomeItem.class));
+    }
+
+    @Bean
+    DynamoDbTable<UserItem> userTable(DynamoDbEnhancedClient enhanced) {
+        return enhanced.table(Tables.USERS,
+                software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(UserItem.class));
+    }
+
+    @Bean
+    DynamoDbTable<RefreshTokenItem> refreshTokenTable(DynamoDbEnhancedClient enhanced) {
+        return enhanced.table(Tables.REFRESH_TOKENS,
+                software.amazon.awssdk.enhanced.dynamodb.TableSchema.fromBean(RefreshTokenItem.class));
     }
 }

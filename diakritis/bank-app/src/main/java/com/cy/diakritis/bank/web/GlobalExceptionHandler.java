@@ -3,6 +3,7 @@ package com.cy.diakritis.bank.web;
 import com.cy.diakritis.bank.security.ForbiddenException;
 import com.cy.diakritis.bank.security.UnauthorizedException;
 import com.cy.diakritis.bank.service.BadRequestException;
+import com.cy.diakritis.bank.service.ConflictException;
 import com.cy.diakritis.bank.service.ResourceNotFoundException;
 import tools.jackson.databind.exc.InvalidFormatException;
 import io.jsonwebtoken.JwtException;
@@ -69,9 +70,21 @@ public class GlobalExceptionHandler {
         return body(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<Map<String, String>> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex) {
+        // A method-security (@PreAuthorize) denial that propagates to the dispatcher → stable 403.
+        return body(HttpStatus.FORBIDDEN, "FORBIDDEN");
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleNotFound(ResourceNotFoundException ex) {
         return body(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<Map<String, String>> handleConflict(ConflictException ex) {
+        return body(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     @ExceptionHandler(HttpStatusCodeException.class)
