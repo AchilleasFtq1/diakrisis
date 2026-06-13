@@ -1,0 +1,16 @@
+{
+  "run": "smile-pretrain",
+  "disclaimer": "built and committed inside the event window",
+  "config": {"trees": 300, "max_depth": 6, "max_nodes": 31, "node_size": 20, "shrinkage": 0.10},
+  "train_seconds": 53.2,
+  "m1": {"pr_auc": 0.4220, "roc_auc": 0.8339},
+    "op_0.3": {"precision": 0.698, "recall": 0.315, "fp": 420, "fn": 2113},
+    "op_0.5": {"precision": 0.737, "recall": 0.288, "fp": 318, "fn": 2194},
+    "op_0.8": {"precision": 0.832, "recall": 0.234, "fp": 146, "fn": 2361},
+    "bin_0.0": {"n": 83964, "observed": 0.0183},
+    "bin_0.1": {"n": 3227, "observed": 0.1794},
+    "bin_0.3": {"n": 183, "observed": 0.4426},
+    "bin_0.5": {"n": 291, "observed": 0.4845},
+    "bin_0.7": {"n": 916, "observed": 0.8166},
+  "ulb_benchmark": {"pr_auc": 0.7743, "roc_auc": 0.9650}
+}

@@ -1,0 +1,16 @@
+amt_log
+hour_sin
+hour_cos
+dow_sin
+dow_cos
+c1_log
+c13_log
+c14_log
+d_miss_count
+d1
+d4
+d10
+d15
+amt_ratio
+email_missing
+is_free_mail
