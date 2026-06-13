@@ -103,7 +103,9 @@ class ScoreEngineSeedTest {
                         sixRoutinePayments(19_530L, firstSeen));
         Counterparty cp = new Counterparty(com.cy.diakritis.common.dto.Addressing.IBAN,
                 cpKey, cpKey, "KL Supplier", "KL Supplier", null);
-        ActionEvent event = Events.transfer("T2", "acc-A", cp, 750, 3200, Rail.SEPA, now);
+        // Routine payment to the established KL standing-order payee at its real Berka amount
+        // (~EUR 195.30 mean): a routine amount keeps A3 silent so B4 carries the verdict to ALLOW.
+        ActionEvent event = Events.transfer("T2", "acc-A", cp, 195, 3200, Rail.SEPA, now);
 
         ScoreResult result = run(event, store, PostureView.empty(now.toEpochMilli()));
         EngineVerdict v = result.engineVerdict();
