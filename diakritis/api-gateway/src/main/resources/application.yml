@@ -1,0 +1,81 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  threads:
+    virtual:
+      enabled: true
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          # ------------------------------------------------------------------------------------------
+          # Route table. Each route forwards to a backend base-url (configurable below via
+          # diakrisis.backends.*; defaults to the localhost ports, overridable for container DNS).
+          # Order matters: more specific predicates are listed first.
+          # ------------------------------------------------------------------------------------------
+          routes:
+            # decision-service (:8081) — scoring + lifecycle. /decision (exact), /actions/**, /decisions/**
+            - id: decision-decision
+              uri: ${diakrisis.backends.decision-service}
+              predicates:
+                - Path=/decision
+            - id: decision-actions
+              uri: ${diakrisis.backends.decision-service}
+              predicates:
+                - Path=/actions/**
+            - id: decision-decisions
+              uri: ${diakrisis.backends.decision-service}
+              predicates:
+                - Path=/decisions/**
+
+            # ops-service (:8082) — analyst dashboard projections.
+            - id: ops
+              uri: ${diakrisis.backends.ops-service}
+              predicates:
+                - Path=/ops/**
+
+            # iam-service (:8083) — identity + admin console.
+            - id: iam-auth
+              uri: ${diakrisis.backends.iam-service}
+              predicates:
+                - Path=/auth/**
+            - id: iam-admin
+              uri: ${diakrisis.backends.iam-service}
+              predicates:
+                - Path=/admin/**
+
+diakrisis:
+  jwt:
+    # Same secret the backends use to mint/verify; the gateway re-verifies at the edge (HS256, >=32 bytes).
+    secret: ${DIAKRISIS_JWT_SECRET:diakrisis-local-development-secret-key-change-me}
+  backends:
+    # Backend base URLs. Default to the localhost dev ports; override (env / properties) for compose DNS.
+    decision-service: ${DIAKRISIS_DECISION_URL:http://localhost:8081}
+    ops-service: ${DIAKRISIS_OPS_URL:http://localhost:8082}
+    iam-service: ${DIAKRISIS_IAM_URL:http://localhost:8083}
+
+# ------------------------------------------------------------------------------------------------
+# Aggregated Swagger UI: one UI at the gateway listing the three backends' live OpenAPI docs as
+# groups. springdoc points the UI's group selector at each backend's /v3/api-docs directly.
+# ------------------------------------------------------------------------------------------------
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    # Don't try to render a (non-existent) gateway-local spec; only the backend groups below.
+    disable-swagger-default-url: true
+    urls:
+      - name: decision-service
+        url: ${DIAKRISIS_DECISION_URL:http://localhost:8081}/v3/api-docs
+      - name: ops-service
+        url: ${DIAKRISIS_OPS_URL:http://localhost:8082}/v3/api-docs
+      - name: iam-service
+        url: ${DIAKRISIS_IAM_URL:http://localhost:8083}/v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

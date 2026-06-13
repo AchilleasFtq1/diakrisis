@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      Self-contained Spring Boot application — the single front door (:8080) of the Diakrisis fraud
+      product. Parent is the canonical spring-boot-starter-parent. Unlike the backend services (which
+      target Boot 4.1.0), this module is DELIBERATELY pinned to Boot 4.0.x.
+
+      WHY 4.0.x AND NOT 4.1.0:
+        The gateway is built on Spring Cloud Gateway Server MVC 5.0.x, shipped by the Spring Cloud
+        2025.1.1 (Oakwood) release train — the first Spring Cloud line that supports Spring Boot 4, and
+        it targets the Boot 4.0.x baseline. The gateway is a STANDALONE deployable that only forwards
+        HTTP to the backends; it never shares the com.cy.diakritis:common library (Boot 4.1) or any
+        backend code on its classpath. The services and the gateway communicate purely over HTTP, so
+        the gateway's Boot version is independent of theirs.
+
+      JWT VALIDATION:
+        Because we do NOT put the Boot-4.1 common lib on this 4.0.x classpath, the edge JWT check is a
+        tiny, self-contained HS256 verification (jjwt added directly) that reads the same
+        DIAKRISIS_JWT_SECRET as the backends and validates the same token shape (sub + role claims).
+        The backends STILL validate the JWT themselves (defense in depth).
+
+      Builds standalone with 'cd api-gateway && mvn clean package'. Does NOT inherit the reactor pom.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.7</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.cy.diakritis</groupId>
+    <artifactId>api-gateway</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>Diakrisis API Gateway</name>
+    <description>Single front door (:8080): routes /decision, /ops/**, /auth/**, /admin/** with edge JWT + CORS + aggregated Swagger.</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <java.version>26</java.version>
+        <maven.compiler.release>26</maven.compiler.release>
+
+        <!-- Oakwood release train: first Spring Cloud line that supports Spring Boot 4 (4.0.x baseline). -->
+        <spring-cloud.version>2025.1.1</spring-cloud.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <!-- springdoc 3.0.x is the first GA line built against Spring Boot 4 / Spring Framework 7. -->
+        <springdoc.version>3.0.3</springdoc.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!--
+          Spring Cloud Gateway Server MVC (the SERVLET / blocking gateway, NOT the reactive one). It
+          brings spring-boot-starter-web transitively and registers the route forwarding handler.
+        -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway-server-webmvc</artifactId>
+        </dependency>
+
+        <!--
+          Self-contained edge JWT validation (HS256) — re-implemented here rather than reusing the
+          Boot-4.1 common lib, so the gateway classpath stays on the Boot-4.0.x baseline.
+        -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!--
+          Actuator exposes /actuator/health, consumed by the docker-compose healthcheck and bypassed
+          by the edge-auth filter's public-path rule.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!--
+          Aggregated Swagger UI for the whole product: this UI lists the three backends' /v3/api-docs
+          as groups (see application.yml springdoc.swagger-ui.urls). springdoc 3.0.x autoconfigures the
+          UI against Spring Boot 4.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -33,5 +33,6 @@
         <module>decision-service</module>
         <module>iam-service</module>
         <module>ops-service</module>
+        <module>api-gateway</module>
     </modules>
 </project>
