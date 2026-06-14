@@ -3,6 +3,7 @@ package com.cy.diakritis.engine.signal;
 import com.cy.diakritis.common.dto.ActionEvent;
 import com.cy.diakritis.common.dto.Addressing;
 import com.cy.diakritis.common.dto.Counterparty;
+import com.cy.diakritis.common.dto.EngineVerdict;
 import com.cy.diakritis.common.dto.Platform;
 import com.cy.diakritis.common.dto.Rail;
 import com.cy.diakritis.common.dto.SessionContext;
@@ -12,6 +13,9 @@ import com.cy.diakritis.engine.FakeFeatureStore;
 import com.cy.diakritis.engine.FakeObservations;
 import com.cy.diakritis.engine.FakeReputation;
 import com.cy.diakritis.engine.band.Weights;
+import com.cy.diakritis.engine.m1.M1Scorer;
+import com.cy.diakritis.engine.pipeline.ScoreEngine;
+import com.cy.diakritis.engine.pipeline.ScoreResult;
 import com.cy.diakritis.engine.store.AccountStatsView;
 import com.cy.diakritis.engine.store.CidrGeoResolver;
 import com.cy.diakritis.engine.store.GeoResolver;
@@ -19,8 +23,10 @@ import com.cy.diakritis.engine.store.ObservationsView;
 import com.cy.diakritis.engine.store.PostureView;
 import com.cy.diakritis.engine.store.ReputationView;
 import com.cy.diakritis.engine.store.RuntimeState;
+import com.cy.diakritis.engine.typology.TypologyEvaluator;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +43,8 @@ class NewSignalsTest {
 
     private static final long DAY_MS = 24L * 60L * 60L * 1000L;
     private static final long HOUR_MS = 60L * 60L * 1000L;
+    private static final Path MODELS_DIR =
+            Path.of("/Users/achilleaseftychiou/Documents/Projects/diakrisis/diakrisis-models");
     private final Instant now = Instant.parse("2026-06-13T12:00:00Z");
 
     // --- context builders --------------------------------------------------------------------
@@ -148,6 +156,73 @@ class NewSignalsTest {
                 ObservationsView.empty(), GeoResolver.unknownAll(), ReputationView.empty(),
                 30_000L, 500_000L);
         assertEquals(0.0, signal.value(fresh), 1e-9, "C3 silent without raised retries");
+    }
+
+    /**
+     * End-to-end proof that the engine records each in-session monetary attempt, so a coached victim
+     * re-submitting at successively higher amounts in one session drives C3 on the later attempt. Three
+     * TRANSFERs share the SAME session id at strictly increasing amounts, reusing one {@link RuntimeState}
+     * across all three {@code score(...)} calls; the 3rd carries a non-zero C3 contribution (two raised
+     * steps among three in-session attempts → value 0.5, contribution {@code Weights.C3 * 0.5}). A single
+     * transfer with no prior in-session attempts contributes nothing, proving the wiring (not the harness)
+     * is what fires C3.
+     */
+    @Test
+    void c3ContributesOnThirdInSessionRaisedTransferThroughEngine() {
+        M1Scorer m1 = new M1Scorer(MODELS_DIR);
+        ScoreEngine engine = new ScoreEngine(m1, new TypologyEvaluator());
+        FakeFeatureStore store = new FakeFeatureStore();
+        String sessionId = "sess-c3-engine";
+        Counterparty cp = Events.payee("CY00C3ENGINE000", null, null);
+
+        // One shared RuntimeState across all three in-session calls so the raised-amount deque accrues.
+        RuntimeState runtime = new RuntimeState();
+        ActionEvent first = Events.transferInSession("c3e-1", "acc", cp,
+                100, 9000, Rail.SEPA, sessionId, now);
+        ActionEvent second = Events.transferInSession("c3e-2", "acc", cp,
+                200, 9000, Rail.SEPA, sessionId, now.plusMillis(1000L));
+        ActionEvent third = Events.transferInSession("c3e-3", "acc", cp,
+                300, 9000, Rail.SEPA, sessionId, now.plusMillis(2000L));
+
+        engine.score(first, store, runtime, PostureView.empty(now.toEpochMilli()),
+                ObservationsView.empty(), now);
+        engine.score(second, store, runtime, PostureView.empty(now.toEpochMilli()),
+                ObservationsView.empty(), now.plusMillis(1000L));
+        ScoreResult thirdResult = engine.score(third, store, runtime, PostureView.empty(now.toEpochMilli()),
+                ObservationsView.empty(), now.plusMillis(2000L));
+
+        // Two strictly-increasing steps among the three in-session attempts → C3 value = 2/saturation.
+        double expectedThirdC3Value = 2.0 / Weights.C3_RETRY_SATURATION;
+        assertEquals(expectedThirdC3Value, signalValue(thirdResult.engineVerdict(), "C3"), 1e-9,
+                "C3 must fire on the 3rd in-session raised transfer once the engine records each attempt");
+        assertTrue(c3Contribution(thirdResult.engineVerdict()) > 0.0,
+                "C3 must carry a non-zero contribution on the 3rd in-session raised transfer");
+
+        // A single transfer with no prior in-session attempts: a fresh session over a fresh runtime → C3 = 0.
+        ScoreResult lone = engine.score(
+                Events.transferInSession("c3e-lone", "acc", cp, 300, 9000, Rail.SEPA, "sess-c3-lone", now),
+                store, new RuntimeState(), PostureView.empty(now.toEpochMilli()),
+                ObservationsView.empty(), now);
+        assertEquals(0.0, signalValue(lone.engineVerdict(), "C3"), 1e-9,
+                "C3 silent for a single transfer with no prior in-session attempts");
+        assertTrue(c3Contribution(thirdResult.engineVerdict()) > c3Contribution(lone.engineVerdict()),
+                "the 3rd in-session transfer must out-score the lone transfer on C3");
+    }
+
+    private static double signalValue(EngineVerdict verdict, String id) {
+        return verdict.signals().stream()
+                .filter(s -> s.id().equals(id))
+                .mapToDouble(com.cy.diakritis.common.dto.Signal::value)
+                .findFirst()
+                .orElse(0.0);
+    }
+
+    private static double c3Contribution(EngineVerdict verdict) {
+        return verdict.signals().stream()
+                .filter(s -> s.id().equals("C3"))
+                .mapToDouble(com.cy.diakritis.common.dto.Signal::contribution)
+                .findFirst()
+                .orElse(0.0);
     }
 
     // --- G1 unfamiliar geo / G2 new network --------------------------------------------------

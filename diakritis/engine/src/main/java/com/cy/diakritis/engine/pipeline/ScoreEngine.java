@@ -202,6 +202,14 @@ public final class ScoreEngine {
         if (type == EventType.BENEFICIARY_ADD && event.context() != null) {
             runtime.recordBeneficiaryAdd(event.context().sessionId(), now.toEpochMilli());
         }
+        // C3 retry-pressure: record this monetary attempt so a coached victim re-submitting at successively higher
+        // amounts in one session is detectable. Mirrors recordBeneficiaryAdd; a CI-1 replay never re-scores so it
+        // is not re-recorded.
+        if (event.context() != null
+                && (type == EventType.TRANSFER || type == EventType.P2P_TRANSFER)
+                && amountCents > 0) {
+            runtime.recordRaisedAttempt(event.context().sessionId(), amountCents, now.toEpochMilli());
+        }
 
         long logicalAmountCents = runtime.logicalAmountCents(event.accountId(), cpKey, amountCents, now.toEpochMilli());
 
