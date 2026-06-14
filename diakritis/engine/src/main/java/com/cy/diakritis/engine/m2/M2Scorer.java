@@ -91,6 +91,13 @@ public final class M2Scorer {
         try {
             double[] raw = Features.toVector(ctx);
             double[] query = scaler.transform(raw);
+            if (isZeroVector(query)) {
+                // Degenerate query (every raw feature exactly equals its column mean): the standardized
+                // vector is all-zero and carries no evidence. Abstain (0.0) as the contract documents —
+                // running the k-NN over a zero vector would otherwise collapse to the exemplars' base
+                // fraud rate, silently injecting the population prior as an M2 signal.
+                return 0.0;
+            }
             double share = index.fraudNeighborShare(query, Weights.M2_KNN_K);
             if (Double.isNaN(share)) {
                 return 0.0;
@@ -100,6 +107,16 @@ public final class M2Scorer {
             log.warn("M2 scoring failed; returning 0. cause={}", e.toString());
             return 0.0;
         }
+    }
+
+    /** True when every component is exactly zero — a degenerate, no-evidence query vector. */
+    private static boolean isZeroVector(double[] v) {
+        for (double x : v) {
+            if (x != 0.0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

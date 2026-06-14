@@ -160,6 +160,9 @@ public final class Features {
         if (at < 0 || at == value.length() - 1) {
             return null;
         }
-        return value.substring(at + 1).toLowerCase();
+        // Locale.ROOT: a locale-sensitive fold (e.g. tr-TR maps 'I' → dotless 'ı') would produce a
+        // different domain string than training did, flipping is_free_mail and breaking train/serve
+        // parity. The rest of the engine pins Locale.ROOT for exactly this reason (Identity.normalizeName).
+        return value.substring(at + 1).toLowerCase(java.util.Locale.ROOT);
     }
 }
