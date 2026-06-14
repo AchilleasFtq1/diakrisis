@@ -60,6 +60,12 @@ public class EdgeAuthFilter extends OncePerRequestFilter {
             "/auth/login",
             "/auth/register",
             "/auth/refresh",
+            // Logout must be reachable WITHOUT a valid access token: its purpose is to revoke the
+            // (still-valid) refresh token, which is exactly the situation where the access token has
+            // expired. It is also presented with the opaque refresh token as the bearer, which is not a
+            // JWT and would fail edge verification. iam-service treats all of /auth/** as permitAll, so
+            // this keeps the edge allowlist in sync with that contract.
+            "/auth/logout",
             "/swagger-ui",
             "/swagger-ui/**",
             "/swagger-ui.html",
