@@ -245,15 +245,18 @@ public class UserService {
 
         if (role != null) {
             user.setRoles(List.of(role.name()));
-            // A non-account role cannot retain an account binding.
-            if (role != Role.CUSTOMER) {
-                user.setAccountId(null);
-            }
         }
         if (enabled != null) {
             user.setEnabled(enabled);
         }
-        if (accountId != null) {
+        // Account binding is valid ONLY for a CUSTOMER. Resolve the effective role (the new role if one
+        // was supplied, else the user's current role) and enforce the invariant regardless of the order
+        // fields arrive in: a non-account role can never retain or gain an accountId, and a CUSTOMER's
+        // binding is updated only when an accountId was supplied (a blank clears it).
+        Role effectiveRole = role != null ? role : primaryRole(user);
+        if (effectiveRole != Role.CUSTOMER) {
+            user.setAccountId(null);
+        } else if (accountId != null) {
             user.setAccountId(accountId.isBlank() ? null : accountId);
         }
         userRepository.save(user);

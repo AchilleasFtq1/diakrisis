@@ -52,17 +52,22 @@ public class AuthController {
     }
 
     @Operation(summary = "Register a new user",
-            description = "Self-service registration. Always creates a CUSTOMER (privileged roles are "
-                    + "assignable only via the ADMIN-guarded admin console); accountId binds the CUSTOMER "
-                    + "to an account. 409 if the username is taken; 400 on a weak (too-short) password; "
+            description = "Self-service registration. Always creates an UNBOUND CUSTOMER: privileged roles are "
+                    + "assignable only via the ADMIN-guarded admin console, and account binding is established "
+                    + "only by a trusted path (admin console / bank back-end) — a caller-supplied accountId is "
+                    + "ignored here. 409 if the username is taken; 400 on a weak (too-short) password; "
                     + "422 if a non-CUSTOMER role is requested.")
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     public RegisterResponse register(@Valid @RequestBody RegisterRequest request) {
-        // SECURITY: /auth/register is public (permitAll). A caller-supplied privileged role must never
-        // be honored here — that would be an unauthenticated vertical privilege escalation. Self-service
-        // registrations are always CUSTOMER; if a non-CUSTOMER role is explicitly requested we reject it
-        // (422) rather than silently downgrading, so the contract is unambiguous.
+        // SECURITY: /auth/register is public (permitAll). Two things must never be honored from an
+        // unauthenticated caller here:
+        //   1. a privileged role — that would be a vertical privilege escalation (rejected 422 below);
+        //   2. an accountId — binding to a pre-existing account is the SOLE proof of account authority
+        //      downstream (DecisionService/LifecycleService authorize a CUSTOMER purely by the accountId
+        //      claim), so letting an unauthenticated caller pick an arbitrary accountId is a cross-account
+        //      takeover (IDOR). We therefore register an UNBOUND CUSTOMER and ignore request.accountId();
+        //      account binding is performed only via the admin console or the trusted bank back-end.
         Role requestedRole = UserService.parseRole(request.role()).orElse(Role.CUSTOMER);
         if (requestedRole != Role.CUSTOMER) {
             throw new BadRequestException(
@@ -70,7 +75,7 @@ public class AuthController {
                             + "privileged roles are assigned by an administrator.");
         }
         UserItem user = userService.register(
-                request.username(), request.password(), Role.CUSTOMER, request.accountId());
+                request.username(), request.password(), Role.CUSTOMER, null);
         return new RegisterResponse(user.getUserId(), user.getUsername(), UserService.primaryRole(user).name());
     }
 
