@@ -802,12 +802,24 @@ class GoldenPathTest {
     }
 
     private void seedFreedFundsPosture(String accountId, long freedCents, Instant lastBreak) {
+        // The posture row is now optimistic-locked (@DynamoDbVersionAttribute). A real break earlier in
+        // the test may already have created it, so carry the existing row's version (and applied-event
+        // ring) onto this deterministic overwrite to satisfy the version condition — a blind putItem of a
+        // fresh, version-null item would (correctly) be rejected, which is exactly the lost-update the
+        // optimistic lock prevents in production.
+        AccountPostureItem existing = postureTable.getItem(
+                software.amazon.awssdk.enhanced.dynamodb.Key.builder()
+                        .partitionValue("ACC#" + accountId).sortValue("POSTURE").build());
         AccountPostureItem item = new AccountPostureItem();
         item.setPk("ACC#" + accountId);
         item.setSk("POSTURE");
         item.setFundsFreedEur72hCents(freedCents);
         item.setLastDepositBreakEpochMs(lastBreak.toEpochMilli());
         item.setTtlEpochSec((now.toEpochMilli() + 72L * 60L * 60L * 1000L) / 1000L);
+        if (existing != null) {
+            item.setVersion(existing.getVersion());
+            item.setAppliedEventIds(existing.getAppliedEventIds());
+        }
         postureTable.putItem(item);
     }
 

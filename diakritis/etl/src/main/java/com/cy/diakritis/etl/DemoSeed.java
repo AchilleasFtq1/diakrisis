@@ -528,12 +528,23 @@ final class DemoSeed {
     }
 
     private void seedFreedFundsPosture(String accountId, long freedCents) {
+        // The posture row is optimistic-locked (@DynamoDbVersionAttribute). Re-seeding onto an existing
+        // DynamoDB volume (a stack `up` without `down -v`) must carry the current version, otherwise the
+        // blind putItem's version condition (attribute_not_exists / version match) is rejected and the
+        // seeder aborts. Reading the existing row first makes the seed idempotent across re-runs.
+        AccountPostureItem existing = postureTable.getItem(
+                software.amazon.awssdk.enhanced.dynamodb.Key.builder()
+                        .partitionValue(Keys.accountPk(accountId)).sortValue("POSTURE").build());
         AccountPostureItem item = new AccountPostureItem();
         item.setPk(Keys.accountPk(accountId));
         item.setSk("POSTURE");
         item.setFundsFreedEur72hCents(freedCents);
         item.setLastDepositBreakEpochMs(epochMs(now.minus(Duration.ofMinutes(1))));
         item.setTtlEpochSec((epochMs(now) + 72L * 60L * 60L * 1000L) / 1000L);
+        if (existing != null) {
+            item.setVersion(existing.getVersion());
+            item.setAppliedEventIds(existing.getAppliedEventIds());
+        }
         postureTable.putItem(item);
     }
 

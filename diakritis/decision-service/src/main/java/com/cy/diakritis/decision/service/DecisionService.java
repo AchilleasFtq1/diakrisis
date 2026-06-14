@@ -21,6 +21,7 @@ import com.cy.diakritis.common.persistence.ObservationItem;
 import com.cy.diakritis.common.security.AuthPrincipal;
 import com.cy.diakritis.common.security.Role;
 import com.cy.diakritis.decision.web.error.ForbiddenException;
+import com.cy.diakritis.decision.web.error.UnprocessableException;
 import com.cy.diakritis.decision.repo.AccountPostureRepository;
 import com.cy.diakritis.decision.repo.CaseRepository;
 import com.cy.diakritis.decision.repo.CounterpartyReputationRepository;
@@ -165,12 +166,16 @@ public class DecisionService {
      */
     public Decision decide(ActionEvent event, AuthPrincipal principal) {
         // Authorisation: a CUSTOMER-scoped token may only submit decisions for its OWN account — it
-        // must not score (or replay) another customer's account. Elevated/service roles (the bank's
-        // own OPS/ADMIN/APPROVER credentials, or a future service account with no account claim) may
-        // submit on behalf of any account, which is how a bank back-end legitimately calls this API.
+        // must not score (or replay) another customer's account. A CUSTOMER token with NO account claim
+        // is unbound and owns no account, so it may not score any specific account either (this also
+        // closes the gap where a self-registered, unbound customer could submit for an arbitrary account
+        // because the old guard skipped a null claim). Elevated/service roles (the bank's own
+        // OPS/ADMIN/APPROVER credentials, or a service account with no account claim) may submit on
+        // behalf of any account, which is how a bank back-end legitimately calls this API. This mirrors
+        // LifecycleService.requireOwnership, which already rejects a null/mismatched CUSTOMER claim.
         if (principal != null && principal.role() == Role.CUSTOMER
-                && principal.accountId() != null
-                && !principal.accountId().equals(event.accountId())) {
+                && (principal.accountId() == null
+                    || !principal.accountId().equals(event.accountId()))) {
             throw new ForbiddenException("ACCOUNT_OWNERSHIP_REQUIRED",
                     "This token may only submit decisions for its own account");
         }
@@ -375,6 +380,9 @@ public class DecisionService {
     /** Cap on the bounded ring of applied eventIds kept on a posture row for increment idempotency. */
     private static final int POSTURE_APPLIED_EVENT_CAP = 64;
 
+    /** Max optimistic-lock attempts for a posture commit before it is logged and skipped. */
+    private static final int POSTURE_SAVE_MAX_ATTEMPTS = 5;
+
     /**
      * Commit account posture for the winning decision, branching per event type so all three
      * kill-chain counters are actually written:
@@ -418,17 +426,10 @@ public class DecisionService {
         long principalCents = toCents(deposit.principalEur());
         long penaltyCents = deposit.penaltyEur() == null ? 0L : toCents(deposit.penaltyEur());
         long freedCents = Math.max(0L, principalCents - penaltyCents);
-
-        AccountPostureItem item = accountPostureRepository.find(event.accountId())
-                .orElseGet(() -> newPosture(event.accountId()));
-        if (alreadyApplied(item, event.eventId())) {
-            return;
-        }
-        item.setFundsFreedEur72hCents(item.getFundsFreedEur72hCents() + freedCents);
-        item.setLastDepositBreakEpochMs(now.toEpochMilli());
-        markApplied(item, event.eventId());
-        item.setTtlEpochSec(postureTtlSec(now));
-        accountPostureRepository.save(item);
+        mutatePosture(event.accountId(), event.eventId(), now, item -> {
+            item.setFundsFreedEur72hCents(item.getFundsFreedEur72hCents() + freedCents);
+            item.setLastDepositBreakEpochMs(now.toEpochMilli());
+        });
     }
 
     private void commitLimitRaisePosture(ActionEvent event,
@@ -441,29 +442,52 @@ public class DecisionService {
             // exploit; do not stamp a raise so K2 stays silent.
             return;
         }
-        AccountPostureItem item = accountPostureRepository.find(event.accountId())
-                .orElseGet(() -> newPosture(event.accountId()));
-        if (alreadyApplied(item, event.eventId())) {
-            return;
-        }
-        item.setLimitRaised72hCents(item.getLimitRaised72hCents() + raisedCents);
-        item.setLastLimitRaiseEpochMs(now.toEpochMilli());
-        markApplied(item, event.eventId());
-        item.setTtlEpochSec(postureTtlSec(now));
-        accountPostureRepository.save(item);
+        mutatePosture(event.accountId(), event.eventId(), now, item -> {
+            item.setLimitRaised72hCents(item.getLimitRaised72hCents() + raisedCents);
+            item.setLastLimitRaiseEpochMs(now.toEpochMilli());
+        });
     }
 
     private void commitBeneficiaryAddPosture(ActionEvent event, Instant now) {
-        AccountPostureItem item = accountPostureRepository.find(event.accountId())
-                .orElseGet(() -> newPosture(event.accountId()));
-        if (alreadyApplied(item, event.eventId())) {
-            return;
+        mutatePosture(event.accountId(), event.eventId(), now, item -> {
+            item.setBeneficiaryAddCount72h(item.getBeneficiaryAddCount72h() + 1L);
+            item.setLastBeneficiaryAddEpochMs(now.toEpochMilli());
+        });
+    }
+
+    /**
+     * Idempotent, optimistic-locked posture mutation. Reads the row, skips when this eventId has already
+     * been applied (the bounded applied-event ring), applies {@code apply}, marks the eventId applied,
+     * stamps the TTL, and saves under the row's {@code @DynamoDbVersionAttribute}. On a concurrent
+     * modification (the version condition fails) it re-reads the now-newer row and re-applies the delta —
+     * so two concurrent read-modify-write commits on the SAME account never lose an update (different
+     * eventIds → both increments survive) and never double-count (same eventId → deduped by the ring on
+     * re-read). A save that loses every retry is logged and skipped rather than failing the decision
+     * (the engine verdict is already returned; posture is advisory accumulation).
+     */
+    private void mutatePosture(String accountId, String eventId, Instant now,
+                               java.util.function.Consumer<AccountPostureItem> apply) {
+        for (int attempt = 1; ; attempt++) {
+            AccountPostureItem item = accountPostureRepository.find(accountId)
+                    .orElseGet(() -> newPosture(accountId));
+            if (alreadyApplied(item, eventId)) {
+                return;
+            }
+            apply.accept(item);
+            markApplied(item, eventId);
+            item.setTtlEpochSec(postureTtlSec(now));
+            try {
+                accountPostureRepository.save(item);
+                return;
+            } catch (software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException race) {
+                if (attempt >= POSTURE_SAVE_MAX_ATTEMPTS) {
+                    LOG.warn("Posture commit for account {} event {} lost {} optimistic-lock races; "
+                            + "skipping to avoid blocking the decision path", accountId, eventId, attempt);
+                    return;
+                }
+                // Re-read the newer row and re-apply our delta on top.
+            }
         }
-        item.setBeneficiaryAddCount72h(item.getBeneficiaryAddCount72h() + 1L);
-        item.setLastBeneficiaryAddEpochMs(now.toEpochMilli());
-        markApplied(item, event.eventId());
-        item.setTtlEpochSec(postureTtlSec(now));
-        accountPostureRepository.save(item);
     }
 
     /** True if this eventId's contribution has already been applied to the posture row's counters. */
@@ -833,6 +857,14 @@ public class DecisionService {
         if (eur == null) {
             return 0L;
         }
-        return eur.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
+        try {
+            return eur.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
+        } catch (ArithmeticException overflow) {
+            // A well-formed but absurd-magnitude amount (cents > Long.MAX, i.e. ~9.2e16 EUR) is
+            // semantically invalid, not a server fault. Surface it as 422 rather than letting the
+            // ArithmeticException fall through to the generic 500 handler — the CI-8 contract is that a
+            // malformed or semantically-invalid request body is always a 4xx.
+            throw new UnprocessableException("amount is too large to process");
+        }
     }
 }

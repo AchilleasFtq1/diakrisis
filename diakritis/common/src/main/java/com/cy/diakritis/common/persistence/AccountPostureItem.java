@@ -3,6 +3,7 @@ package com.cy.diakritis.common.persistence;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbBean;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbPartitionKey;
 import software.amazon.awssdk.enhanced.dynamodb.mapper.annotations.DynamoDbSortKey;
+import software.amazon.awssdk.enhanced.dynamodb.extensions.annotations.DynamoDbVersionAttribute;
 
 import java.util.List;
 
@@ -30,6 +31,11 @@ public class AccountPostureItem {
     // double-counting a counter. Trimmed to a fixed cap by the writer.
     private List<String> appliedEventIds;
     private long ttlEpochSec;
+    // Optimistic-lock version: the enhanced client conditions each putItem on this value and bumps it,
+    // so two concurrent read-modify-write commits on the same posture row cannot lose an update (or, for
+    // the same eventId, double-count). The writer re-reads and re-applies on a failed condition. Null on
+    // a fresh/legacy row is treated as "new" (attribute_not_exists), which safely upgrades it on first write.
+    private Long version;
 
     @DynamoDbPartitionKey
     public String getPk() {
@@ -111,5 +117,14 @@ public class AccountPostureItem {
 
     public void setTtlEpochSec(long ttlEpochSec) {
         this.ttlEpochSec = ttlEpochSec;
+    }
+
+    @DynamoDbVersionAttribute
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 }

@@ -4,8 +4,10 @@ import com.cy.diakritis.common.dto.ActionEvent;
 import com.cy.diakritis.common.dto.Decision;
 import com.cy.diakritis.common.persistence.DecisionItem;
 import com.cy.diakritis.common.security.AuthPrincipal;
+import com.cy.diakritis.common.security.Role;
 import com.cy.diakritis.decision.repo.DecisionRepository;
 import com.cy.diakritis.decision.service.DecisionService;
+import com.cy.diakritis.decision.web.error.ForbiddenException;
 import com.cy.diakritis.decision.web.error.NotFoundException;
 import com.cy.diakritis.decision.web.error.UnprocessableException;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The decision API.
@@ -65,14 +68,39 @@ public class DecisionController {
             description = "Returns the audit + customer explanation, reason code, and typologies for a previously "
                     + "scored event_id.")
     @GetMapping(path = "/decisions/{id}/why", produces = MediaType.APPLICATION_JSON_VALUE)
-    public WhyResponse why(@PathVariable("id") String eventId) {
+    public WhyResponse why(@PathVariable("id") String eventId, HttpServletRequest request) {
         DecisionItem item = decisionRepository.findByEventId(eventId)
                 .orElseThrow(() -> new NotFoundException("No decision for event " + eventId));
+
+        // Authorisation: a CUSTOMER token may only read the explanation for its OWN account's decision
+        // (mirrors the ownership guard on POST /decision and the lifecycle actions). Without this guard
+        // any authenticated user could enumerate event ids and read another account's audit narrative,
+        // reason code and fraud typologies — a cross-account information disclosure (IDOR). Elevated
+        // roles (OPS/APPROVER/ADMIN) and service callers may read any decision's full audit trail.
+        AuthPrincipal principal = CurrentPrincipal.from(request);
+        boolean isCustomer = principal != null && principal.role() == Role.CUSTOMER;
+        if (isCustomer && (principal.accountId() == null
+                || !principal.accountId().equals(item.getAccountId()))) {
+            throw new ForbiddenException("ACCOUNT_OWNERSHIP_REQUIRED",
+                    "This token may only read explanations for its own account");
+        }
+
         JsonNode response = readResponse(item, eventId);
         JsonNode explanation = response.get("explanation");
         JsonNode reasonCode = response.get("reason_code");
         JsonNode engineVerdict = response.get("engine_verdict");
         JsonNode typologies = engineVerdict == null ? null : engineVerdict.get("typologies");
+
+        if (isCustomer) {
+            // The customer must NEVER see operator-only audit text, the engine reason code, or the named
+            // fraud typologies — only the plain-English customer explanation (SDD: the raw engine
+            // verdict/score/codes/typologies are never surfaced to the customer).
+            if (explanation != null && explanation.isObject()) {
+                ((ObjectNode) explanation).remove("audit");
+            }
+            return new WhyResponse(eventId, null, explanation, null);
+        }
+
         return new WhyResponse(
                 eventId,
                 reasonCode == null || reasonCode.isNull() ? null : reasonCode.asText(),

@@ -116,9 +116,12 @@ public class LifecycleService {
      * approver must hold the {@code APPROVER} role and must not be the action's initiator.
      */
     public LifecycleResult approve(String eventId, AuthPrincipal principal) {
+        // Authorise BEFORE touching the action: a non-approver must always receive 403 regardless of the
+        // action's existence or lifecycle state, so they cannot probe (via 404 vs 403 vs a 409 that
+        // echoes the state name) whether an arbitrary event id exists or is awaiting approval.
+        requireApprover(principal);
         DecisionItem decision = require(eventId);
         requireState(decision, LifecycleState.PENDING_APPROVAL);
-        requireApprover(principal);
         if (isSelfApproval(principal, decision)) {
             throw new ForbiddenException(ERR_SELF_APPROVAL,
                     "An action cannot be approved by its initiator");
@@ -134,9 +137,11 @@ public class LifecycleService {
 
     /** Designated approver rejects a REQUIRE_APPROVAL action → rejected. */
     public LifecycleResult reject(String eventId, AuthPrincipal principal) {
+        // Authorise before touching the action (see approve() — prevents non-approvers probing existence
+        // or lifecycle state via the response status).
+        requireApprover(principal);
         DecisionItem decision = require(eventId);
         requireState(decision, LifecycleState.PENDING_APPROVAL);
-        requireApprover(principal);
         if (isSelfApproval(principal, decision)) {
             throw new ForbiddenException(ERR_SELF_APPROVAL,
                     "An action cannot be rejected by its initiator");
