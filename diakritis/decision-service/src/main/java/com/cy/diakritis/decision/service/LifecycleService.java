@@ -12,6 +12,8 @@ import com.cy.diakritis.common.security.Role;
 import com.cy.diakritis.decision.repo.CaseRepository;
 import com.cy.diakritis.decision.repo.DecisionRepository;
 import com.cy.diakritis.decision.repo.OutcomeRepository;
+import com.cy.diakritis.engine.store.AccountStatsView;
+import com.cy.diakritis.engine.store.FeatureStore;
 import com.cy.diakritis.decision.web.error.ConflictException;
 import com.cy.diakritis.decision.web.error.ForbiddenException;
 import com.cy.diakritis.decision.web.error.NotFoundException;
@@ -45,6 +47,8 @@ public class LifecycleService {
     public static final String ERR_LOCKED_PRE_EXPIRY = "LOCKED_PRE_EXPIRY";
     public static final String ERR_ILLEGAL_TRANSITION = "ILLEGAL_TRANSITION";
 
+    private static final String ERR_APPROVER_NOT_DESIGNATED = "APPROVER_NOT_DESIGNATED";
+
     private static final Logger LOG = LoggerFactory.getLogger(LifecycleService.class);
 
     /** Joins the firing signal ids into the recorded outcome's {@code signalPattern}. */
@@ -53,13 +57,16 @@ public class LifecycleService {
     private final DecisionRepository decisionRepository;
     private final CaseRepository caseRepository;
     private final OutcomeRepository outcomeRepository;
+    private final FeatureStore featureStore;
     private final JsonMapper jsonMapper;
 
     public LifecycleService(DecisionRepository decisionRepository, CaseRepository caseRepository,
-                            OutcomeRepository outcomeRepository, JsonMapper jsonMapper) {
+                            OutcomeRepository outcomeRepository, FeatureStore featureStore,
+                            JsonMapper jsonMapper) {
         this.decisionRepository = decisionRepository;
         this.caseRepository = caseRepository;
         this.outcomeRepository = outcomeRepository;
+        this.featureStore = featureStore;
         this.jsonMapper = jsonMapper;
     }
 
@@ -121,6 +128,7 @@ public class LifecycleService {
         // echoes the state name) whether an arbitrary event id exists or is awaiting approval.
         requireApprover(principal);
         DecisionItem decision = require(eventId);
+        requireDesignatedApprover(principal, decision);
         requireState(decision, LifecycleState.PENDING_APPROVAL);
         if (isSelfApproval(principal, decision)) {
             throw new ForbiddenException(ERR_SELF_APPROVAL,
@@ -141,6 +149,7 @@ public class LifecycleService {
         // or lifecycle state via the response status).
         requireApprover(principal);
         DecisionItem decision = require(eventId);
+        requireDesignatedApprover(principal, decision);
         requireState(decision, LifecycleState.PENDING_APPROVAL);
         if (isSelfApproval(principal, decision)) {
             throw new ForbiddenException(ERR_SELF_APPROVAL,
@@ -353,6 +362,34 @@ public class LifecycleService {
         if (principal.role() != Role.APPROVER && principal.role() != Role.ADMIN) {
             throw new ForbiddenException(ERR_NOT_AUTHORISED,
                     "Only a designated approver or an admin (call-center) may approve or reject");
+        }
+    }
+
+    /**
+     * Four-eyes authorisation, scoped to the action's account: an {@code APPROVER} may only authorise an
+     * action belonging to an account that lists their {@code userId} among its designated approvers.
+     * Holding the role alone is insufficient — otherwise any business approver could approve another
+     * account's four-eyes action by learning its eventId. The designated list is the offline-computed
+     * {@link AccountStatsView#approverUserIds()} loaded from the feature store.
+     *
+     * <p>{@code ADMIN} is exempt: the bank's call-center verifies the customer out-of-band before
+     * authorising any account, so it is not bound to a per-account approver list.
+     *
+     * <p>Fail-closed: a missing stats row, a null/empty approver list, or a principal absent from the
+     * list all deny — an account with no designated approvers cannot have its four-eyes action approved
+     * by an arbitrary approver. Runs AFTER {@code require()} but BEFORE {@code requireState()}, so a
+     * non-designated approver is rejected before the action's lifecycle state is revealed.
+     */
+    private void requireDesignatedApprover(AuthPrincipal principal, DecisionItem decision) {
+        if (principal.role() == Role.ADMIN) {
+            return;
+        }
+        AccountStatsView stats = featureStore.accountStats(decision.getAccountId());
+        List<String> approverUserIds = stats == null ? null : stats.approverUserIds();
+        if (approverUserIds == null || approverUserIds.isEmpty()
+                || !approverUserIds.contains(principal.userId())) {
+            throw new ForbiddenException(ERR_APPROVER_NOT_DESIGNATED,
+                    "Only a designated approver for this account may approve or reject");
         }
     }
 

@@ -106,6 +106,15 @@ class GoldenPathTest {
     private static final String CD_CP = "CD|46939146";
     private static final String KL_CP = "KL|64831554";
 
+    // The designated approvers seeded onto an approver-enabled account (putStats with approver=true).
+    // Must match DemoSeed's APPROVER_BIZ; "self-initiator" is also designated so the T13 self-approval
+    // path reaches the SELF_APPROVAL_FORBIDDEN check (it would otherwise be denied as non-designated
+    // before its own subject is compared). A non-designated approver (e.g. "approver-other", T11b) is
+    // deliberately absent from this list.
+    private static final String APPROVER_BIZ = "approver-biz";
+    private static final String SELF_INITIATOR = "self-initiator";
+    private static final List<String> DESIGNATED_APPROVERS = List.of(APPROVER_BIZ, SELF_INITIATOR);
+
     // Per-run keys for the HOLD-producing scenarios. The CounterpartyReputation store persists across
     // runs in the shared DynamoDB Local, so a fixed key would carry a stale cross-account (X1) flag
     // from a prior run and over-escalate (HOLD → BLOCK). Namespacing per run keeps each run isolated.
@@ -457,6 +466,27 @@ class GoldenPathTest {
     }
 
     @Test
+    void t11b_nonDesignatedApprover_isForbidden() {
+        // Four-eyes is account-scoped: holding the APPROVER role is not enough — the approver must be on
+        // the account's designated approver list. An approver who is NOT designated for this payroll
+        // account (and is not the initiator, so this is NOT the self-approval path) must be 403
+        // APPROVER_NOT_DESIGNATED, and the action must remain PENDING_APPROVAL for a real approver.
+        String acct = freshPayrollAccount();
+        String eventId = uniqueId("t11b");
+        post(payrollBatchBody(eventId, acct), token("biz-initiator", Role.CUSTOMER, acct), HttpStatus.OK);
+
+        // APPROVER role, but "approver-other" is not in the account's designated approver list.
+        ResponseEntity<String> resp = approveRaw(eventId, token("approver-other", Role.APPROVER, acct));
+        assertEquals(HttpStatus.FORBIDDEN, resp.getStatusCode(),
+                "T11b non-designated approver must be 403 but was " + resp.getStatusCode());
+        assertTrue(resp.getBody() != null && resp.getBody().contains("APPROVER_NOT_DESIGNATED"),
+                "T11b body must name APPROVER_NOT_DESIGNATED but was " + resp.getBody());
+
+        // A designated approver can still approve → proves the action stayed PENDING_APPROVAL.
+        approve(eventId, token("approver-biz", Role.APPROVER, acct), HttpStatus.OK);
+    }
+
+    @Test
     void t12_muleFanOutBatch_isBlock() {
         // 30 lines, all brand-new counterparties, draining ~99% of the balance → MP1≈1.0, MP4≈1.0,
         // and an outsized total versus the account's small outgoing baseline → MP2 saturates. The
@@ -738,7 +768,9 @@ class GoldenPathTest {
         item.setOutTxnCount(count);
         item.setBusinessAccount(business);
         item.setHasDesignatedApprover(approver);
-        item.setApproverUserIds(List.of());
+        // A designated-approver account must actually NAME its approvers, else the four-eyes guard
+        // (LifecycleService.requireDesignatedApprover) fails closed and no approver could ever approve.
+        item.setApproverUserIds(approver ? DESIGNATED_APPROVERS : List.of());
         item.setSource("CONSTRUCTED");
         statsTable.putItem(item);
     }
