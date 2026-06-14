@@ -9,14 +9,22 @@ kill-chain is now a **HOLD with a named scam warning**, the SDD's intended "name
 
 ---
 
-## 1. Pre-flight — do this 5 minutes before (gives you a clean slate)
+## 1. Pre-flight — run ONE command right before you present
 
 ```bash
 # native Ollama must be running for the AI co-judge (Gemma):  HOME=$HOME nohup ollama serve &
-cd /Users/achilleaseftychiou/Documents/Projects/diakrisis/diakritis
-docker compose --profile demo down -v && docker compose --profile demo up -d --build
+cd /Users/achilleaseftychiou/Documents/Projects/diakrisis
+bash qa/prep-demo.sh        # resets + WARMS Gemma & the kill-chain path, prints the links
 ```
-Wait ~60–90s, then confirm everything is up:
+
+> ⚠️ **Why warm, not just `up`?** On a cold boot the FIRST live kill-chain looks broken even though
+> it isn't: the co-judge shows **"UNAVAILABLE"** (Gemma's first call cold-loads ~10s) and latency
+> shows **"over SLA"** (the kill-chain path JIT-compiles on first use, ~90–115 ms). `prep-demo.sh`
+> drives a few throwaway decisions so your first REAL run shows the co-judge **agreeing** and a green
+> **~30–45 ms** latency. **Re-run it right before presenting** — Gemma re-cools after a few idle minutes.
+> *(If you only changed code, add `--build`: `cd diakritis && docker compose --profile demo up -d --build` first.)*
+
+The script prints "DEMO-READY" + the links. To double-check by hand:
 ```bash
 docker inspect diakrisis-demo-bank --format '{{.State.Health.Status}}'   # → healthy
 docker logs diakrisis-decision-service 2>&1 | grep -i "co-judge LIVE"     # → AI co-judge LIVE: gemma4:e2b
