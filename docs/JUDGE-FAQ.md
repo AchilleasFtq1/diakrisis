@@ -51,8 +51,8 @@ together is a block. <50 ms per decision.
 APP scams are prepared in steps (break a deposit, raise a limit, add a payee, then send). We keep
 **posture state** per account (e.g. "funds freed in the last N days"). When the drain transfer
 arrives, the engine sees the freed-funds posture from the earlier break and trips
-`liquidation_kill_chain`. *Demoed live: break a deposit → then sweep to a new payee → BLOCK score
-99, because the engine remembered the break.*
+`liquidation_kill_chain`. *Demoed live: break a deposit → then sweep to a new payee → HOLD score
+~89, single typology `liquidation_kill_chain`, because the engine remembered the break.*
 
 **Q: Can a scammer just retry until it goes through?**
 No. Each new attempt is **re-scored against current state**, and the prior attempt is now in the

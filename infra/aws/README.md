@@ -2,8 +2,12 @@
 
 > **The seam is real, not a slide.** Diakrisis already talks to its data store through the **AWS SDK
 > v2 DynamoDB enhanced client** (`@DynamoDbBean`, `DynamoDbEnhancedClient`). Locally it points at
-> DynamoDB Local; in production it points at AWS DynamoDB. **Same code, one endpoint difference.**
-> This folder is the proof: real Infrastructure-as-Code you can `cloudformation deploy`.
+> DynamoDB Local; in production it points at AWS DynamoDB. Today the client wiring
+> (`DynamoConfigSupport.client`) **unconditionally** sets `endpointOverride` and static dummy
+> `local`/`local` credentials, so flipping to real AWS is a small, well-scoped code change (~10 lines:
+> make `endpointOverride` conditional on a configured endpoint, and fall back to the default/IAM
+> credential chain) — not a re-architecture. This folder is the proof of the rest: real
+> Infrastructure-as-Code you can `cloudformation deploy`.
 
 ## Money-free path (this runs at **$0**)
 
@@ -26,8 +30,12 @@ aws cloudformation deploy \
   --stack-name diakrisis-data \
   --region eu-central-1
 
-# point the running services at AWS instead of local DynamoDB (no code change):
-unset DIAKRISIS_DYNAMO_ENDPOINT          # SDK now uses the real AWS endpoint
+# point the running services at AWS instead of local DynamoDB.
+# NOTE: this needs the ~10-line client change above (conditional endpointOverride +
+# default/IAM credential chain). Today, unsetting DIAKRISIS_DYNAMO_ENDPOINT only falls back to
+# the http://localhost:8000 default, and the client still uses static local/local credentials —
+# so the SDK does NOT reach real AWS until that change lands.
+unset DIAKRISIS_DYNAMO_ENDPOINT          # (after the change) SDK uses the real AWS endpoint
 export AWS_REGION=eu-central-1           # + standard AWS creds (env / profile / role)
 # re-seed from Berka into AWS:
 java -jar etl/target/etl.jar --berka-dir ../data/raw/berka --demo   # --ddb-endpoint omitted → AWS
@@ -61,13 +69,18 @@ exist in the code (interfaces: `ExemplarIndex`, `AiCoJudge`, `GeoResolver`, the 
 > single-digit-ms key store — and the 72-hour kill-chain posture is just **DynamoDB TTL**, so the store
 > ages itself. Vectors go to **OpenSearch k-NN**, the LLM co-judge to **Bedrock**, the feedback loop to
 > **SageMaker**. Every one of those sits behind an interface that already exists in the code, so the
-> swap is config, not a rewrite — which is why I can deploy the data layer right now from this
-> CloudFormation."
+> swap is config plus a small client tweak (the DynamoDB endpoint/credential wiring), not a rewrite —
+> which is why I can deploy the data layer right now from this CloudFormation."
 
 ## Why this is credible without a live AWS deployment
 
 - The code **already** uses the AWS SDK v2 DynamoDB enhanced client — not a homegrown abstraction.
-- The 72h decay is **already** modelled as a `ttlEpochSec` attribute → it *is* a DynamoDB TTL field.
+  (The local→AWS flip is a ~10-line change: today `endpointOverride` and the `local`/`local`
+  credentials are set unconditionally; production needs a conditional `endpointOverride` + the
+  default/IAM credential chain.)
+- The 72h decay is **already** modelled as a `ttlEpochSec` attribute → it *is* a DynamoDB TTL field,
+  and the table bootstrap already enables TTL on that attribute (`Observations`, `AccountPosture`,
+  `CounterpartyReputation`).
 - Every external dependency (vector store, LLM, geo) is **already** behind a Java interface with a
   swappable implementation (`KdTreeExemplarIndex` ↔ `QdrantExemplarIndex`, etc.).
 - This template is **real and deployable** — not pseudocode on a slide.
