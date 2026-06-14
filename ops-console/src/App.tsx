@@ -14,16 +14,19 @@ import AdminUsers from './pages/AdminUsers';
 import Reference from './pages/Reference';
 
 /**
- * The current session only if it is present AND not expired. An expired access token whose stale JSON
- * still sits in storage must NOT grant page access — otherwise every protected page (incl. /admin)
- * renders and then 401-storms on the first API call. We proactively clear the dead session so the
- * redirect to /login is clean. expires_at is ISO-8601 from the auth response; a missing/invalid value
- * is treated as non-expiring (the API layer still enforces expiry authoritatively on each request).
+ * The current session, if it can still be used. The access token is short-lived (~15 min) but the
+ * session also carries a long-lived (~30 day) refresh token, and the API layer (api.ts) transparently
+ * swaps an expired access token for a fresh one via that refresh token on the next call. So an expired
+ * access token does NOT end the session: we only treat it as dead — clearing it and redirecting to
+ * /login — when the access token has expired AND there is no refresh token left to renew it. (Clearing
+ * on access-token expiry alone would bounce an analyst to the login screen every ~15 minutes and wipe
+ * the still-valid refresh token, defeating the whole refresh mechanism.) expires_at is ISO-8601; a
+ * missing/invalid value is treated as non-expiring (the API layer enforces expiry authoritatively).
  */
 function activeSession(): Session | null {
   const session = loadSession();
   if (!session) return null;
-  if (session.expires_at) {
+  if (session.expires_at && !session.refresh_token) {
     const expiresAt = new Date(session.expires_at).getTime();
     if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
       clearSession();

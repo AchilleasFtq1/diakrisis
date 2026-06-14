@@ -39,7 +39,11 @@ export default function Overview() {
   const c = counters.data;
   const totalDecisions = c?.total ?? 0;
   const money = c ? euro(c.money_saved_cents / 100) : '—';
-  const slaOk = (c?.p50_latency_ms ?? 0) < 50;
+  // SLA state is UNKNOWN (not OK) while counters are loading or the API errored — a missing p50 must
+  // never render as a green "within SLA", which would falsely signal health during an outage/first paint.
+  const p50 = c?.p50_latency_ms;
+  const slaKnown = p50 != null;
+  const slaOk = slaKnown && p50 < 50;
 
   const rows = feed.data?.items ?? [];
   const matchTotal = feed.data?.total ?? 0;
@@ -68,8 +72,8 @@ export default function Overview() {
           <StatCard label="Total decisions" value={totalDecisions.toLocaleString()} hint="Every action the engine has scored." />
           <StatCard
             label="p50 latency"
-            value={<span style={{ color: slaOk ? '#3FB950' : '#F85149' }}>{c?.p50_latency_ms ?? '—'}<span className="text-[14px] text-muted ml-1">ms</span></span>}
-            sub={<span className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${slaOk ? 'bg-allow' : 'bg-block'}`} />{slaOk ? 'within < 50ms SLA' : 'over SLA'}</span>}
+            value={<span style={{ color: !slaKnown ? '#93A1B0' : slaOk ? '#3FB950' : '#F85149' }}>{p50 ?? '—'}<span className="text-[14px] text-muted ml-1">ms</span></span>}
+            sub={<span className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${!slaKnown ? 'bg-muted' : slaOk ? 'bg-allow' : 'bg-block'}`} />{!slaKnown ? 'SLA —' : slaOk ? 'within < 50ms SLA' : 'over SLA'}</span>}
             hint="Median decision latency. The deterministic decision path targets under 50ms."
           />
           <StatCard label="Confirmed saves" value={c?.confirmed_saves ?? '—'} accent="#3FB950" sub="frauds stopped" hint="Held actions a customer cancelled — true catches (money protected)." />
@@ -196,7 +200,13 @@ export default function Overview() {
                 {rows.length === 0 && (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-muted">
-                      {filtersActive ? 'No decisions match the current filters.' : 'No decisions yet — drive a payment in the bank.'}
+                      {feed.isLoading
+                        ? 'Loading…'
+                        : feed.isError
+                          ? 'Could not load the decision feed.'
+                          : filtersActive
+                            ? 'No decisions match the current filters.'
+                            : 'No decisions yet — drive a payment in the bank.'}
                     </td>
                   </tr>
                 )}

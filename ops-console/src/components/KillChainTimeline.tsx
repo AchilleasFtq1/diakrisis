@@ -25,15 +25,24 @@ function humanType(t: string | null): string {
 export function KillChainTimeline({
   account,
   highlightEventId,
+  anchorTime,
   isKillChain = false,
 }: {
   account: AccountView;
   highlightEventId?: string;
+  /** The viewed decision's own created_at — used as the anchor when it falls outside the history window. */
+  anchorTime?: string | null;
   isKillChain?: boolean;
 }) {
   const steps: FeedEntry[] = [...account.history].reverse(); // oldest first
+  // Anchor the relative "T−…" offsets on the decision under review. If that decision is older than the
+  // windowed history (so highlightEventId matches nothing), prefer its own created_at over the newest
+  // step — otherwise every offset would silently be measured against the wrong reference point.
   const anchor =
-    steps.find((s) => s.event_id === highlightEventId)?.created_at ?? steps[steps.length - 1]?.created_at ?? null;
+    steps.find((s) => s.event_id === highlightEventId)?.created_at
+    ?? anchorTime
+    ?? steps[steps.length - 1]?.created_at
+    ?? null;
 
   if (steps.length === 0) {
     return <div className="text-[12px] text-muted">No prior actions on this account.</div>;

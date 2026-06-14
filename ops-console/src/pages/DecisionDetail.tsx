@@ -145,16 +145,46 @@ export default function DecisionDetail() {
           ]
         : [];
 
+  // A 409 means different things per action: for approve/reject it is a four-eyes race (another
+  // authoriser already resolved it); for release it is the cooling-off hold still being locked. Key the
+  // message off the action actually attempted (act.variables) rather than assuming it was a release.
+  const lastAction = act.variables as LifecycleAction | undefined;
   const actionError =
     act.error instanceof ApiError
       ? act.error.status === 409
-        ? 'Hold is still locked until its expiry — it cannot be released early.'
+        ? lastAction === 'approve' || lastAction === 'reject'
+          ? 'This action was already resolved by another approver.'
+          : 'Hold is still locked until its expiry — it cannot be released early.'
         : act.error.status === 403
           ? 'Not permitted (four-eyes self-approval, or APPROVER role required).'
           : `Action failed (${act.error.status}).`
       : act.error
         ? 'Action failed.'
         : null;
+
+  // Distinguish "still loading" and "not found / failed" from a real decision that simply has sparse
+  // data — otherwise a bad/expired/typo'd id renders a degraded shell of '—' placeholders with no way
+  // to tell it apart from a genuine decision. (All hooks above run unconditionally; these early returns
+  // come after them so the rules-of-hooks order is preserved.)
+  if (decision.isLoading) {
+    return <div className="px-8 py-10 text-muted font-mono text-[13px]">Loading decision…</div>;
+  }
+  if (decision.isError || !d) {
+    const notFound = decision.error instanceof ApiError && decision.error.status === 404;
+    return (
+      <div className="px-8 py-8">
+        <Link to="/overview" className="font-mono text-[11.5px] text-muted hover:text-fg">← Live feed</Link>
+        <div className="mt-6 text-fg text-[15px] font-semibold">
+          {notFound ? 'Decision not found' : 'Failed to load decision'}
+        </div>
+        <div className="mt-1 text-muted text-[13px]">
+          {notFound
+            ? <>No decision exists for id <Mono className="text-fg-2">{id}</Mono>.</>
+            : 'The decision could not be loaded. Please try again.'}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -253,7 +283,7 @@ export default function DecisionDetail() {
           )}
 
           {account.data ? (
-            <KillChainTimeline account={account.data} highlightEventId={id} isKillChain={isKillChain} />
+            <KillChainTimeline account={account.data} highlightEventId={id} anchorTime={d.created_at} isKillChain={isKillChain} />
           ) : accountId ? (
             <div className="text-[12px] text-muted">Loading account history…</div>
           ) : (
