@@ -514,6 +514,26 @@ public class BankController {
         return "error-page";
     }
 
+    /**
+     * A failed {@code @RequestParam} bean-validation constraint (blank/negative/over-precision value
+     * posted past the browser's HTML5 checks) throws HandlerMethodValidationException in Spring 6.1+,
+     * NOT IllegalArgumentException — so without this handler it would render the generic Whitelabel
+     * page instead of the branded Meridian error page.
+     */
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @org.springframework.web.bind.annotation.ExceptionHandler({
+            org.springframework.web.method.annotation.HandlerMethodValidationException.class,
+            jakarta.validation.ConstraintViolationException.class})
+    public String handleValidation(Exception ex, HttpSession session, Model model) {
+        model.addAttribute("customer", owner(session));
+        model.addAttribute("navActive", "");
+        model.addAttribute("ownerAccounts",
+                owner(session) == null ? List.of() : bankService.accountsForOwner(owner(session)));
+        model.addAttribute("errorTitle", "Invalid request");
+        model.addAttribute("errorMessage", "Please check the form values and try again.");
+        return "error-page";
+    }
+
     /** A horizontal-authorization failure (operating on another customer's account) → HTTP 403. */
     @ResponseStatus(HttpStatus.FORBIDDEN)
     @org.springframework.web.bind.annotation.ExceptionHandler(AccessDeniedException.class)

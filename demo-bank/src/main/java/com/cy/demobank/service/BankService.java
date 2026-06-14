@@ -202,8 +202,18 @@ public class BankService {
         // it bypasses the amount cross-check / debit that an outbound transfer goes through. The pending
         // row carries the deposit id as its counterparty ref.
         if ("DEPOSIT_BREAK".equals(pending.kind())) {
+            // Commit the LOCAL break first and honour the result. markBroken returns false when the
+            // deposit was already broken (e.g. a second pending break for the same deposit) — confirming
+            // that must NOT report a phantom second settlement, and must NOT advance the remote lifecycle.
+            boolean broke = depositRepository.markBroken(pending.counterpartyRef());
+            if (!broke) {
+                transactionRepository.markStatus(eventId, "Cancelled");
+                return new ActionResult(null, false,
+                        "This term deposit has already been broken.", "TERM_DEPOSIT_BREAK");
+            }
+            // Only now advance the remote lifecycle — so the decision-service is told "confirm" strictly
+            // after the local break actually committed (no cross-system divergence).
             decisionClient.act(account.ownerUser(), eventId, "confirm");
-            depositRepository.markBroken(pending.counterpartyRef());
             transactionRepository.markStatus(eventId, "Sent");
             return new ActionResult(null, true,
                     "Term deposit broken; the funds are settling to your account.", "TERM_DEPOSIT_BREAK");
@@ -214,8 +224,10 @@ public class BankService {
             throw new IllegalArgumentException("The confirmed amount does not match the payment we scored.");
         }
 
-        decisionClient.act(account.ownerUser(), eventId, "confirm");
-
+        // Commit the local debit FIRST, then advance the remote lifecycle, so the decision-service is only
+        // told "confirm" once the money actually moved. (Previously act("confirm") ran before the debit,
+        // so an insufficient-balance confirm told the engine the payment executed while the local ledger
+        // cancelled it — the two systems then disagreed permanently with no compensation.)
         if (storedCents > 0) {
             boolean debited = accountRepository.debitIfSufficient(account.id(), storedCents);
             if (!debited) {
@@ -225,6 +237,7 @@ public class BankService {
                         "Payment confirmed but there was not enough balance to send it.", "TRANSFER");
             }
         }
+        decisionClient.act(account.ownerUser(), eventId, "confirm");
         transactionRepository.markStatus(eventId, "Sent");
         return new ActionResult(null, true, "Payment confirmed and sent.", "TRANSFER");
     }
@@ -374,6 +387,18 @@ public class BankService {
         // Resolve the owning account and assert the caller owns it — a deposit can only be broken by
         // the customer who holds the account it sits against.
         Account account = requireOwnedAccount(deposit.accountId(), ownerUser);
+
+        // A CONFIRM break is not committed until the SCA step-up, so the deposit stays un-broken in the
+        // meantime — guard against scoring a SECOND break for the same deposit (which would create a
+        // duplicate pending row and, on confirm, a phantom second settlement) while one is still pending.
+        boolean breakAlreadyPending = transactionRepository.findByAccount(account.id()).stream()
+                .anyMatch(t -> "DEPOSIT_BREAK".equals(t.kind())
+                        && depositId.equals(t.counterpartyRef())
+                        && (t.statusOverride() == null || t.statusOverride().isBlank()));
+        if (breakAlreadyPending) {
+            throw new IllegalArgumentException(
+                    "A break for deposit " + depositId + " is already awaiting confirmation.");
+        }
 
         DepositBreakPayloadDto payload = new DepositBreakPayloadDto(
                 deposit.id(), deposit.principalEur(),
