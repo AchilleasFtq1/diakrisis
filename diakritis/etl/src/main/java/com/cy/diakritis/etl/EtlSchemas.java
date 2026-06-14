@@ -30,8 +30,8 @@ final class EtlSchemas {
                 // The T7-T15 seed establishes behavioural baselines (device / country / alias
                 // resolution), a freed-funds posture, and a cross-account reputation flag so
                 // G1/D1/P1/K1/X1 fire on the demo's next action exactly as in the golden-path suite.
-                TableSchema.of(Tables.OBSERVATIONS, "pk", "sk"),
-                TableSchema.of(Tables.ACCOUNT_POSTURE, "pk", "sk"),
-                TableSchema.of(Tables.COUNTERPARTY_REPUTATION, "pk", "sk"));
+                TableSchema.of(Tables.OBSERVATIONS, "pk", "sk", "ttlEpochSec"),
+                TableSchema.of(Tables.ACCOUNT_POSTURE, "pk", "sk", "ttlEpochSec"),
+                TableSchema.of(Tables.COUNTERPARTY_REPUTATION, "pk", "sk", "ttlEpochSec"));
     }
 }

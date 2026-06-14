@@ -12,6 +12,8 @@ import software.amazon.awssdk.services.dynamodb.model.KeyType;
 import software.amazon.awssdk.services.dynamodb.model.ResourceInUseException;
 import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
+import software.amazon.awssdk.services.dynamodb.model.TimeToLiveSpecification;
+import software.amazon.awssdk.services.dynamodb.model.UpdateTimeToLiveRequest;
 import software.amazon.awssdk.services.dynamodb.waiters.DynamoDbWaiter;
 
 import java.util.ArrayList;
@@ -51,6 +53,32 @@ public final class TableBootstrap {
             LOG.debug("Table {} already exists; skipping create", schema.tableName());
         } catch (ResourceNotFoundException notFound) {
             create(client, schema);
+        }
+        // Existence is now assured (already-existed or just-created). createTable cannot enable TTL,
+        // and createIfMissing skips existing tables, so TTL must be (idempotently) (re)applied on every
+        // boot here — for both branches above.
+        enableTtlIfRequested(client, schema);
+    }
+
+    private static void enableTtlIfRequested(DynamoDbClient client, TableSchema schema) {
+        if (schema.ttlAttribute() == null) {
+            return;
+        }
+        try {
+            client.updateTimeToLive(UpdateTimeToLiveRequest.builder()
+                    .tableName(schema.tableName())
+                    .timeToLiveSpecification(TimeToLiveSpecification.builder()
+                            .enabled(true)
+                            .attributeName(schema.ttlAttribute())
+                            .build())
+                    .build());
+            LOG.info("Enabled TTL on {} (attribute={})", schema.tableName(), schema.ttlAttribute());
+        } catch (Exception ttlFailure) {
+            // updateTimeToLive is idempotent on real DynamoDB but can throw if TTL is already enabled
+            // (or is in a transient state); DynamoDB-Local accepts the metadata op but may behave
+            // differently across versions. Either way TTL is a best-effort optimisation — never let it
+            // break boot.
+            LOG.warn("TTL enable skipped on {} : {}", schema.tableName(), ttlFailure.getMessage());
         }
     }
 

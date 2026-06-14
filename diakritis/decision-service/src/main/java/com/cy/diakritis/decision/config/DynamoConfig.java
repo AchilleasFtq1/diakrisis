@@ -44,9 +44,9 @@ public class DynamoConfig {
                     TableSchema.of(Tables.ACCOUNT_STATS, PK, SK),
                     TableSchema.of(Tables.COUNTERPARTY_BY_NAME, PK, SK),
                     TableSchema.of(Tables.DECISIONS, PK, SK),
-                    TableSchema.of(Tables.OBSERVATIONS, PK, SK),
-                    TableSchema.of(Tables.ACCOUNT_POSTURE, PK, SK),
-                    TableSchema.of(Tables.COUNTERPARTY_REPUTATION, PK, SK),
+                    TableSchema.of(Tables.OBSERVATIONS, PK, SK, "ttlEpochSec"),
+                    TableSchema.of(Tables.ACCOUNT_POSTURE, PK, SK, "ttlEpochSec"),
+                    TableSchema.of(Tables.COUNTERPARTY_REPUTATION, PK, SK, "ttlEpochSec"),
                     TableSchema.of(Tables.ACCOUNTS, PK, SK),
                     TableSchema.of(Tables.CASES, PK, SK),
                     TableSchema.of(Tables.OUTCOMES, PK, SK)));

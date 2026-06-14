@@ -38,9 +38,9 @@ public class DynamoConfig {
                     TableSchema.of(Tables.DECISIONS, "pk", "sk"),
                     TableSchema.of(Tables.CASES, "pk", "sk"),
                     TableSchema.of(Tables.OUTCOMES, "pk", "sk"),
-                    TableSchema.of(Tables.ACCOUNT_POSTURE, "pk", "sk"),
-                    TableSchema.of(Tables.OBSERVATIONS, "pk", "sk"),
-                    TableSchema.of(Tables.COUNTERPARTY_REPUTATION, "pk", "sk"),
+                    TableSchema.of(Tables.ACCOUNT_POSTURE, "pk", "sk", "ttlEpochSec"),
+                    TableSchema.of(Tables.OBSERVATIONS, "pk", "sk", "ttlEpochSec"),
+                    TableSchema.of(Tables.COUNTERPARTY_REPUTATION, "pk", "sk", "ttlEpochSec"),
                     TableSchema.of(Tables.COUNTERPARTY_BASELINE, "pk", "sk")));
         }
         return client;
