@@ -20,6 +20,30 @@ const ROLE_HEX: Record<string, string> = {
 
 const inputCls = 'w-full h-[38px] rounded-lg bg-ink border border-line-2 px-3 font-mono text-[12px] text-fg outline-none focus:border-cyan';
 
+/** Human-readable labels for each step of the sequenced update, in execution order. */
+const UPDATE_PHASE_LABEL = {
+  'role/account': 'role/account updated',
+  password: 'password reset',
+  rename: 'renamed',
+} as const;
+type UpdatePhase = keyof typeof UPDATE_PHASE_LABEL;
+
+/**
+ * Raised when the sequenced update fails part-way through. It carries the phase that failed and the
+ * phases that already committed on the server, so the banner can tell the admin the true server state
+ * (e.g. "role/account updated, password reset — but rename failed") instead of a bare "Action failed".
+ */
+class PartialUpdateError extends Error {
+  constructor(
+    readonly phase: UpdatePhase,
+    readonly committed: UpdatePhase[],
+    readonly cause: unknown,
+  ) {
+    super(`update failed during '${phase}'`);
+    this.name = 'PartialUpdateError';
+  }
+}
+
 export default function AdminUsers() {
   const session = loadSession();
   const isAdmin = session?.roles?.includes('ADMIN') ?? false;
@@ -46,6 +70,18 @@ export default function AdminUsers() {
   const fail = (e: unknown) =>
     setBanner({ kind: 'err', text: e instanceof ApiError ? `Failed (${e.status}).` : 'Action failed.' });
 
+  // Phase-aware error for the sequenced update: state exactly what persisted before the failing step so
+  // the admin understands the real server state (e.g. role already changed) and does not blindly retry
+  // the whole sequence — which would re-apply role/password under the old username key.
+  const failPartialUpdate = (e: PartialUpdateError) => {
+    const cause = e.cause;
+    const status = cause instanceof ApiError ? ` (${cause.status})` : '';
+    const failedLabel = `${UPDATE_PHASE_LABEL[e.phase]} failed${status}`;
+    const committedLabels = e.committed.map((p) => UPDATE_PHASE_LABEL[p]);
+    const prefix = committedLabels.length > 0 ? `${committedLabels.join(', ')} — but ` : '';
+    setBanner({ kind: 'err', text: `${prefix}${failedLabel}. Review the row below for the current state.` });
+  };
+
   const createMut = useMutation({
     mutationFn: () =>
       api.admin.createUser({
@@ -64,19 +100,41 @@ export default function AdminUsers() {
   });
   const updateMut = useMutation({
     // Sequenced so the username re-key happens LAST (after role/account/password under the old key).
+    // Each step is committed independently server-side, so we record what actually persisted and, on a
+    // mid-sequence failure, raise a PartialUpdateError carrying that state — the UI must never claim the
+    // whole action failed when an earlier privileged change (e.g. role) is already live.
     mutationFn: async () => {
       const current = editing!.username;
       const target = editForm.username.trim();
-      await api.admin.updateUser(current, {
-        role: editForm.role,
-        enabled: editForm.enabled,
-        account_id: editForm.account_id.trim() ? editForm.account_id.trim() : undefined,
-      });
-      if (editForm.password.trim()) {
-        await api.admin.resetPassword(current, editForm.password.trim());
+      const committed: UpdatePhase[] = [];
+
+      try {
+        await api.admin.updateUser(current, {
+          role: editForm.role,
+          enabled: editForm.enabled,
+          account_id: editForm.account_id.trim() ? editForm.account_id.trim() : undefined,
+        });
+        committed.push('role/account');
+      } catch (e) {
+        throw new PartialUpdateError('role/account', committed, e);
       }
+
+      if (editForm.password.trim()) {
+        try {
+          await api.admin.resetPassword(current, editForm.password.trim());
+          committed.push('password');
+        } catch (e) {
+          throw new PartialUpdateError('password', committed, e);
+        }
+      }
+
       if (target && target !== current) {
-        await api.admin.renameUser(current, target);
+        try {
+          await api.admin.renameUser(current, target);
+          committed.push('rename');
+        } catch (e) {
+          throw new PartialUpdateError('rename', committed, e);
+        }
       }
     },
     onSuccess: () => {
@@ -84,14 +142,23 @@ export default function AdminUsers() {
       const renamed = editForm.username.trim() && editForm.username.trim() !== editing!.username ? ` · renamed to ${editForm.username.trim()}` : '';
       setBanner({ kind: 'ok', text: `Updated ${editing!.username}${renamed}${pw}.` });
       setEditing(null);
-      refresh();
     },
-    onError: fail,
+    onError: (e) => {
+      if (e instanceof PartialUpdateError) {
+        failPartialUpdate(e);
+      } else {
+        fail(e);
+      }
+    },
+    // Always re-read true server state, even on partial failure, so the table never shows the stale
+    // pre-edit row after role/account/password were already changed server-side (no destructive retry).
+    onSettled: () => refresh(),
   });
   const deleteMut = useMutation({
     mutationFn: (username: string) => api.admin.deleteUser(username),
-    onSuccess: () => { setBanner({ kind: 'ok', text: 'User deleted.' }); refresh(); },
+    onSuccess: () => { setBanner({ kind: 'ok', text: 'User deleted.' }); },
     onError: fail,
+    onSettled: () => refresh(),
   });
 
   const rows = users.data ?? [];

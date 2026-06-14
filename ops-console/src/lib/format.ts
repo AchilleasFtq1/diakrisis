@@ -17,6 +17,27 @@ export const OUTCOME_LABEL: Record<Outcome, string> = {
   BLOCK: 'reject',
 };
 
+/**
+ * The authoritative risk-score band edges (inclusive lower bound of each band), mirroring the engine's
+ * Bands.java and the catalog OUTCOME_BANDS: ALLOW 0–29, CONFIRM 30–59, HOLD 60–84, BLOCK 85+. Every
+ * surface that colours a score MUST band on these same edges so the feed and the detail page agree on
+ * the severity colour for one and the same decision.
+ */
+export const SCORE_BAND_EDGES = { confirm: 30, hold: 60, block: 85 } as const;
+
+/**
+ * Map a (possibly fractional) risk score to its severity colour, using the authoritative band edges.
+ * Single source of truth consumed by ScoreMeter (feed/account tables) and the DecisionDetail score card
+ * so the same score is never coloured differently across screens. Defensive against null/NaN inputs.
+ */
+export function scoreColor(score: number | null | undefined): string {
+  const value = typeof score === 'number' && Number.isFinite(score) ? score : 0;
+  if (value >= SCORE_BAND_EDGES.block) return '#F85149'; // BLOCK  (85+)
+  if (value >= SCORE_BAND_EDGES.hold) return '#DB6D28'; // HOLD   (60–84)
+  if (value >= SCORE_BAND_EDGES.confirm) return '#D29922'; // CONFIRM (30–59)
+  return '#3FB950'; // ALLOW (0–29)
+}
+
 export function euro(n: number | null | undefined): string {
   if (n == null) return '—';
   return '€' + n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

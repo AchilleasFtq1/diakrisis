@@ -1,5 +1,6 @@
 import { Info } from 'lucide-react';
 import type { Outcome } from '../lib/types';
+import { scoreColor } from '../lib/format';
 
 /**
  * A small ⓘ cue next to a column header that reveals a plain-language explanation on hover. Uses the
@@ -33,27 +34,24 @@ export function OutcomePill({ outcome }: { outcome: Outcome | null }) {
   );
 }
 
-function scoreColor(score: number): string {
-  if (score >= 80) return '#F85149';
-  if (score >= 60) return '#DB6D28';
-  if (score >= 30) return '#D29922';
-  return '#3FB950';
-}
-
 export function ScoreMeter({ score, wide = false }: { score: number | null; wide?: boolean }) {
   if (score == null) return <NeedsReview label="no score" />;
+  // The colour bands on the raw score so a fractional value (e.g. 59.6) lands in the correct band, but
+  // the displayed number and the meter width round to a whole point so the digit shown can never sit on
+  // the wrong side of a band edge from the colour, and the feed and detail page agree for one decision.
+  const rounded = Math.round(score);
   return (
     <div className="flex items-center gap-2.5">
       <span
         className="font-mono font-semibold tabular-nums leading-none"
         style={{ color: scoreColor(score), fontSize: wide ? 30 : 14 }}
       >
-        {score}
+        {rounded}
       </span>
       <div
         className={`${wide ? 'w-44 h-[9px]' : 'w-20 h-[7px]'} rounded bg-panel-2 border border-line overflow-hidden`}
       >
-        <div className="h-full severity-fill" style={{ width: `${Math.min(100, score)}%` }} />
+        <div className="h-full severity-fill" style={{ width: `${Math.min(100, Math.max(0, rounded))}%` }} />
       </div>
     </div>
   );

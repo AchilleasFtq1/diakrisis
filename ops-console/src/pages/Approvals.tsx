@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Check, Lock, X } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { loadSession } from '../lib/auth';
 import { PageHead } from '../components/Layout';
 import { Panel, Pagination, SearchInput } from '../components/widgets';
@@ -10,6 +10,19 @@ import { Mono } from '../components/primitives';
 import { euro, countdown } from '../lib/format';
 
 const PAGE_SIZE = 8;
+
+type ActKind = 'approve' | 'reject';
+type ActVars = { id: string; kind: ActKind };
+
+/** Map a failed approve/reject to an analyst-facing message, mirroring DecisionDetail's action errors. */
+function actErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 409) return 'This action was already resolved by another approver.';
+    if (error.status === 403) return 'Not permitted (four-eyes self-approval, or APPROVER role required).';
+    return `Action failed (${error.status}).`;
+  }
+  return 'Action failed.';
+}
 
 export default function Approvals() {
   const qc = useQueryClient();
@@ -19,6 +32,12 @@ export default function Approvals() {
   const [query, setQuery] = useState('');
   const [mineOnly, setMineOnly] = useState(false);
   const [page, setPage] = useState(1);
+  // Per-event in-flight guard: only the clicked row's buttons disable (not every row), and concurrent
+  // approvals on different events are isolated. Keyed by event_id.
+  const [pending, setPending] = useState<Record<string, ActKind>>({});
+  // Per-event error surfaced inline on the offending row, so a 409/403 is shown instead of silently
+  // swallowed (the previous onSettled-only mutation ignored the error entirely).
+  const [rowError, setRowError] = useState<Record<string, string>>({});
 
   // Server-paged + server-filtered: search, "initiated by me" and page are query params.
   const approvals = useQuery({
@@ -29,10 +48,36 @@ export default function Approvals() {
   });
 
   const act = useMutation({
-    mutationFn: ({ id, kind }: { id: string; kind: 'approve' | 'reject' }) =>
-      kind === 'approve' ? api.approve(id) : api.reject(id),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['approvals'] }),
+    mutationFn: ({ id, kind }: ActVars) => (kind === 'approve' ? api.approve(id) : api.reject(id)),
+    onMutate: ({ id, kind }: ActVars) => {
+      setPending((p) => ({ ...p, [id]: kind }));
+      // Clear any stale error for this row as we retry it.
+      setRowError((e) => {
+        if (!(id in e)) return e;
+        const next = { ...e };
+        delete next[id];
+        return next;
+      });
+    },
+    onError: (error, { id }) => {
+      setRowError((e) => ({ ...e, [id]: actErrorMessage(error) }));
+    },
+    onSettled: (_data, _error, { id }) => {
+      setPending((p) => {
+        if (!(id in p)) return p;
+        const next = { ...p };
+        delete next[id];
+        return next;
+      });
+      qc.invalidateQueries({ queryKey: ['approvals'] });
+    },
   });
+
+  // Guard against double-submit: ignore a click on a row whose action is already in flight.
+  const runAct = (vars: ActVars) => {
+    if (pending[vars.id]) return;
+    act.mutate(vars);
+  };
 
   const pageRows = approvals.data?.items ?? [];
   const total = approvals.data?.total ?? 0;
@@ -89,6 +134,8 @@ export default function Approvals() {
               const ownAction = me && me === a.initiator_user_id; // four-eyes: can't approve your own
               const remaining = countdown(a.hold_expires_at);
               const lapsed = remaining === 'expired' || a.hold_expires_at == null;
+              const inFlight = pending[a.event_id]; // 'approve' | 'reject' | undefined — this row only
+              const error = rowError[a.event_id];
               return (
                 <div
                   key={a.event_id}
@@ -124,7 +171,7 @@ export default function Approvals() {
                     </div>
                   )}
 
-                  <div className="flex items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-2 mt-3 flex-wrap" onClick={(e) => e.stopPropagation()}>
                     {ownAction ? (
                       <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted bg-ink border border-line rounded px-3 py-1.5">
                         <Lock size={12} /> can't approve your own action (four-eyes)
@@ -132,19 +179,20 @@ export default function Approvals() {
                     ) : (
                       <>
                         <button
-                          onClick={() => act.mutate({ id: a.event_id, kind: 'approve' })}
-                          disabled={act.isPending}
-                          className="flex items-center gap-1.5 text-[12px] font-semibold text-ink bg-allow hover:bg-allow/90 rounded px-3.5 py-1.5 disabled:opacity-60"
+                          onClick={() => runAct({ id: a.event_id, kind: 'approve' })}
+                          disabled={!!inFlight}
+                          className="flex items-center gap-1.5 text-[12px] font-semibold text-ink bg-allow hover:bg-allow/90 rounded px-3.5 py-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          <Check size={13} /> Approve
+                          <Check size={13} /> {inFlight === 'approve' ? 'Approving…' : 'Approve'}
                         </button>
                         <button
-                          onClick={() => act.mutate({ id: a.event_id, kind: 'reject' })}
-                          disabled={act.isPending}
-                          className="flex items-center gap-1.5 text-[12px] font-semibold text-block bg-block/10 border border-block/40 hover:bg-block/20 rounded px-3.5 py-1.5 disabled:opacity-60"
+                          onClick={() => runAct({ id: a.event_id, kind: 'reject' })}
+                          disabled={!!inFlight}
+                          className="flex items-center gap-1.5 text-[12px] font-semibold text-block bg-block/10 border border-block/40 hover:bg-block/20 rounded px-3.5 py-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          <X size={13} /> Reject
+                          <X size={13} /> {inFlight === 'reject' ? 'Rejecting…' : 'Reject'}
                         </button>
+                        {error && <span className="font-mono text-[11px] text-block ml-1">{error}</span>}
                       </>
                     )}
                   </div>

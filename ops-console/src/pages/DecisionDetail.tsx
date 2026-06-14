@@ -7,7 +7,7 @@ import { ApiError } from '../lib/api';
 import { loadSession } from '../lib/auth';
 import { OutcomePill, NeedsReview, Mono, ColHint } from '../components/primitives';
 import { KillChainTimeline } from '../components/KillChainTimeline';
-import { euro } from '../lib/format';
+import { euro, scoreColor } from '../lib/format';
 import type { DecisionDetail as DecisionDetailType, Outcome, Signal } from '../lib/types';
 
 type ActionDef = { kind: LifecycleAction; label: string; icon: ComponentType<{ size?: number }>; tone: 'ok' | 'danger' | 'neutral'; disabled?: boolean; hint?: string };
@@ -46,13 +46,6 @@ const STATE_COLOR: Record<string, string> = {
   EXECUTED: '#3FB950',
   CONFIRMED: '#3FB950',
 };
-
-function scoreColor(score: number): string {
-  if (score >= 80) return '#F85149';
-  if (score >= 70) return '#DB6D28';
-  if (score >= 40) return '#D29922';
-  return '#3FB950';
-}
 
 /** Per-signal severity, by its share of the biggest contribution on this decision. */
 function signalColor(contribution: number, max: number): string {
@@ -278,15 +271,16 @@ export default function DecisionDetail() {
                 <>
                   <div className="flex items-baseline gap-2 mt-2.5">
                     <span className="font-mono text-[46px] font-semibold leading-none" style={{ color: scoreColor(score) }}>
-                      {score}
+                      {Math.round(score)}
                     </span>
                     <span className="font-mono text-[16px] text-muted">/ 100</span>
                   </div>
                   <div className="h-[9px] rounded bg-panel-2 border border-line overflow-hidden mt-3.5">
-                    <div className="h-full severity-fill" style={{ width: `${Math.min(100, score)}%` }} />
+                    <div className="h-full severity-fill" style={{ width: `${Math.min(100, Math.max(0, Math.round(score)))}%` }} />
                   </div>
+                  {/* Ticks mark the authoritative band edges (CONFIRM 30 · HOLD 60 · BLOCK 85) so the bar's colour reads against them. */}
                   <div className="flex justify-between font-mono text-[9px] text-muted mt-1.5">
-                    <span>0</span><span>40</span><span>70</span><span>100</span>
+                    <span>0</span><span>30</span><span>60</span><span>85</span>
                   </div>
                 </>
               ) : (
