@@ -61,9 +61,11 @@ public class FeatureRepository {
         if (isBlank(accountId) || isBlank(normalizedName)) {
             return Optional.empty();
         }
+        // Case folding pinned to Locale.ROOT to match Identity.normalizeName: a locale-sensitive
+        // toUpperCase() would re-introduce the Turkish i->İ corruption and break the by-name lookup.
         Key key = Key.builder()
                 .partitionValue(ACCOUNT_PK_PREFIX + accountId)
-                .sortValue(NAME_SK_PREFIX + normalizedName.toUpperCase())
+                .sortValue(NAME_SK_PREFIX + normalizedName.toUpperCase(java.util.Locale.ROOT))
                 .build();
         return Optional.ofNullable(byNameTable.getItem(key));
     }

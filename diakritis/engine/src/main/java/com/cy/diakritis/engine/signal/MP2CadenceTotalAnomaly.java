@@ -39,13 +39,26 @@ public final class MP2CadenceTotalAnomaly implements Signal {
         if (stats == null || stats.outTxnCount() == 0) {
             return 0.0;
         }
-        long totalCents = toCents(payload.totalEur());
+        // Derive the batch total from the actual line items rather than the client-declared totalEur,
+        // so a understated totalEur cannot mask an outsized batch from the cadence/total robust-z.
+        long totalCents = batchTotalCents(payload);
         double z = SignalMath.robustZ(
                 totalCents,
                 stats.outMedianAmountCents(),
                 stats.outMadAmountCents(),
                 stats.outStdAmountCents());
         return SignalMath.clamp01((z - Weights.MP2_Z_FLOOR) / Z_SPAN);
+    }
+
+    /** The batch total as the sum of the line amounts actually being executed (in euro-cents). */
+    private static long batchTotalCents(MassPaymentPayload payload) {
+        long sum = 0L;
+        if (payload.items() != null) {
+            for (var item : payload.items()) {
+                sum += toCents(item.amountEur());
+            }
+        }
+        return sum;
     }
 
     private static long toCents(BigDecimal eur) {

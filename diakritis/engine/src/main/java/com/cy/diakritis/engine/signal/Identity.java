@@ -26,11 +26,19 @@ public final class Identity {
         return addressing + "|" + value;
     }
 
-    /** Lower-cased, whitespace-collapsed name used as the Confirmation-of-Payee lookup key. */
+    /**
+     * Lower-cased, whitespace-collapsed name used as the Confirmation-of-Payee lookup key.
+     *
+     * <p>Case folding is pinned to {@link java.util.Locale#ROOT} so the key is identical regardless of
+     * the JVM default locale. Without this, a Turkish ({@code tr-TR}) locale folds {@code 'I'} to the
+     * dotless {@code 'ı'} rather than {@code 'i'}, so a name written under one locale (e.g. the ETL
+     * seed on a US host) would not match the same name normalized at serve time under another — silently
+     * defeating B5 (name mismatch) and the Ty2 invoice-redirection typology.
+     */
     public static String normalizeName(String name) {
         if (name == null) {
             return "";
         }
-        return name.trim().toLowerCase().replaceAll("\\s+", " ");
+        return name.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
     }
 }

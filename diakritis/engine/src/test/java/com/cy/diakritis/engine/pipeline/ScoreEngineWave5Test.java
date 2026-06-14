@@ -101,6 +101,35 @@ class ScoreEngineWave5Test {
     }
 
     @Test
+    void muleFanOutBatchStaysBlockOnBusinessAccount() {
+        // Regression for the business-override downgrade bug: a maximally-stacked mule fan-out whose
+        // worst line reaches a confirmed-fraud BLOCK (raw ≥ 90, MULE_FAN_OUT) on a BUSINESS account must
+        // STAY BLOCK. Previously the business four-eyes route unconditionally rewrote it to a releasable
+        // REQUIRE_APPROVAL, letting a second approver release confirmed fraud.
+        List<com.cy.diakritis.common.dto.BatchItem> lines = new java.util.ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            lines.add(Events.line("L" + i, Events.payee("MULE-" + i, null, null), 2900));
+        }
+        // 30 brand-new payees draining ~99.4% of the balance → MP1≈1.0, MP4≈1.0, outsized total → MP2
+        // saturates; the worst line's raw score crosses 90 → confirmed-fraud BLOCK.
+        ActionEvent batch = Events.massPayment("biz-fanout", "acc-biz", "B-BIZ-FANOUT", lines,
+                87000, 87500, Rail.SEPA, now);
+        FakeFeatureStore store = new FakeFeatureStore()
+                .seedStats("acc-biz", new AccountStatsView(10_000L, 1_000L, 10_000L, 1_000L, 200L,
+                        true, false, List.of()));
+
+        ScoreResult result = engine.score(batch, store, new RuntimeState(),
+                PostureView.empty(now.toEpochMilli()), ObservationsView.empty(), now);
+
+        assertTrue(result.engineVerdict().typologies().contains(Typologies.MULE_FAN_OUT),
+                "business mule fan-out must name mule_fan_out but was " + result.engineVerdict().typologies());
+        assertEquals(Verdict.BLOCK, result.engineVerdict().decision(),
+                "a confirmed-fraud (raw≥90) business mule fan-out must STAY BLOCK, not downgrade to "
+                        + "REQUIRE_APPROVAL — was " + result.engineVerdict().decision()
+                        + " score=" + result.engineVerdict().score());
+    }
+
+    @Test
     void payrollRedirectionQuarantinesChangedLineAndRoutesToApproval() {
         // Established business payroll: two recurring employees + one line whose IBAN changed (B5).
         String empAName = "Alice Worker";

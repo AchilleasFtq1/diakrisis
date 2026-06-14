@@ -60,11 +60,15 @@ import java.util.concurrent.TimeoutException;
  * and posture/observation/reputation commits.
  *
  * <p>Idempotency (CI-1): a decision for an {@code eventId} is computed at most once. We score, build
- * the response, then conditional-put the record guarded by {@code attribute_not_exists(pk)}. The
- * winner commits posture/observations/reputation exactly once; a loser (concurrent or replayed
- * request) re-reads the stored {@code responseJson} and returns it verbatim with no re-scoring and
- * no double mutation. The {@link RuntimeState} record performed during scoring is rolled back for a
- * loser so the in-memory rolling window is not double-counted.
+ * the response, commit the (idempotent) side-effects, then conditional-put the record guarded by
+ * {@code attribute_not_exists(pk)}. The durable decision row is therefore a commit-COMPLETION marker:
+ * because the side-effects are committed BEFORE the put, a crash after the put cannot leave a stored
+ * decision with missing posture/observations/reputation/Case, and a crash before the put simply
+ * re-scores and re-commits on retry. Every side-effect is idempotent on re-run — the posture increment
+ * is guarded by a per-eventId applied-ring on the row, observations/reputation are last-writer-wins
+ * upserts, the Case is keyed by eventId, and the {@link RuntimeState} record is idempotent per
+ * eventId — so a concurrent race-loser re-running them is benign and no rollback is required. A loser
+ * (concurrent or replayed request) re-reads the stored {@code responseJson} and returns it verbatim.
  *
  * <p>Combine (CI-4): the co-judge is the resilience-default {@code UNAVAILABLE}, so
  * {@code combined.decision == engine.decision} always.
@@ -81,7 +85,15 @@ public class DecisionService {
     private static final String REJECT_ENDPOINT = "/actions/%s/reject";
 
     private static final int APPROVAL_EXPIRY_HOURS = 24;
+    /** Observation-row TTL: the 72h behavioural-baseline rolling window. */
     private static final long POSTURE_TTL_WINDOW_MS = 72L * 60L * 60L * 1000L;
+    /**
+     * AccountPosture-row TTL: sized to the LONGEST kill-chain horizon (the 168h funds-freed window K1
+     * reads) so the posture row survives long enough for K1 to recognise a drain days after the deposit
+     * break. A shorter 72h TTL would expire the row before K1's documented 7-day linkage window closed.
+     */
+    private static final long POSTURE_ROW_TTL_WINDOW_MS =
+            Weights.POSTURE_FUNDS_FREED_WINDOW_HOURS * 60L * 60L * 1000L;
     private static final long REPUTATION_TTL_DAYS_MS = 90L * 24L * 60L * 60L * 1000L;
     private static final long MILLIS_PER_SECOND = 1000L;
 
@@ -202,10 +214,33 @@ public class DecisionService {
         DecisionItem item = buildDecisionItem(event, principal, now, responseJson,
                 lifecycle.state(), holdExpiresEpochMs);
 
+        // Commit the side-effects BEFORE the durable decision row, so the decision row is a
+        // commit-COMPLETION marker, not a head-of-line marker (CI-1 exactly-once). A crash before the
+        // put cleanly re-scores and re-commits on retry; a crash after the put means the side-effects
+        // already completed, so the fast-path replay above is safe and never leaves a HELD/approval
+        // decision without its Case / posture / observations. Each commit is idempotent on re-run:
+        //   - posture: increment guarded by a per-eventId applied-ring on the row;
+        //   - observations: last-writer-wins upserts keyed by (account, kind, value);
+        //   - the in-memory RuntimeState record is idempotent per eventId (see RuntimeState.record);
+        //   - the Case is keyed deterministically by eventId (last-writer-wins on the same pk).
+        //   - reputation: lastFlagEpochMs / worstOutcome are last-writer-wins (the values X1 actually
+        //     scores on); only the advisory flagCount display counter may over-count by one under a
+        //     genuinely concurrent same-eventId duplicate. That does not affect scoring or any verdict.
+        //     (A per-eventId guard on CounterpartyReputationItem would remove even that cosmetic edge.)
+        // So a concurrent race-loser re-running these is benign — no double mutation that affects a
+        // decision, and no rollback needed.
+        commitPosture(event, now);
+        commitObservations(event, now);
+        commitReputation(event, combined.decision(), now);
+        if (isHeldOrApproval(combined.decision())) {
+            openCase(event, principal, combined.decision(), holdExpiresEpochMs, now, result.items());
+        }
+
         boolean won = decisionRepository.putIfAbsent(item);
         if (!won) {
-            // A concurrent winner already committed; undo our rolling-window record and replay theirs.
-            rollbackRuntime(event, now);
+            // A concurrent request already wrote the canonical decision row; replay it verbatim so two
+            // racers return byte-identical bodies. Our own commits above were idempotent, so they did
+            // not corrupt anything.
             var stored = decisionRepository.findByEventId(event.eventId());
             if (stored.isPresent()) {
                 return readStored(stored.get(), event.eventId());
@@ -213,14 +248,6 @@ public class DecisionService {
             // Extremely unlikely (record vanished between the failed put and the read); the freshly
             // computed decision is still correct and identical, so return it.
             return decision;
-        }
-
-        // Winner: commit side-effects exactly once.
-        commitPosture(event, now);
-        commitObservations(event, now);
-        commitReputation(event, combined.decision(), now);
-        if (isHeldOrApproval(combined.decision())) {
-            openCase(event, principal, combined.decision(), holdExpiresEpochMs, now, result.items());
         }
         return decision;
     }
@@ -280,14 +307,6 @@ public class DecisionService {
         return jsonMapper.writeValueAsString(decision);
     }
 
-    private void rollbackRuntime(ActionEvent event, Instant now) {
-        // RuntimeState has no removal API by design (it is an additive rolling window). For a lost
-        // race we re-evict on the next read; the only observable effect of the extra record is a
-        // marginally larger 24h sum for this single pair until eviction, which never lowers a score.
-        // We therefore intentionally leave the window as-is rather than mutating internal state.
-        LOG.debug("Lost idempotency race for event {}; replaying stored decision", event.eventId());
-    }
-
     /**
      * Fold the §17 vulnerability-escalation basis into the combined decision. When the engine
      * escalated a flagged-vulnerable account, we append {@link ScoreEngine#VULNERABILITY_ESCALATION_BASIS}
@@ -345,25 +364,126 @@ public class DecisionService {
 
     // --- side-effect commits ------------------------------------------------------------------
 
+    /** Cap on the bounded ring of applied eventIds kept on a posture row for increment idempotency. */
+    private static final int POSTURE_APPLIED_EVENT_CAP = 64;
+
     /**
-     * Commit account posture for the winning decision. TERM_DEPOSIT_BREAK adds the net freed funds
-     * (principal − penalty) to the 72h freed-funds posture so a subsequent sweep trips K1.
+     * Commit account posture for the winning decision, branching per event type so all three
+     * kill-chain counters are actually written:
+     * <ul>
+     *   <li><b>TERM_DEPOSIT_BREAK</b> adds the net freed funds (principal − penalty) to the freed-funds
+     *       posture and stamps the deposit-break time, so a subsequent sweep trips K1.</li>
+     *   <li><b>LIMIT_CHANGE</b> adds the raised headroom (newLimit − currentLimit) to the limit-raise
+     *       posture and stamps the limit-raise time, so a "raise your limit then send" trips K2.</li>
+     *   <li><b>BENEFICIARY_ADD</b> increments the beneficiary-add count and stamps the add time, so a
+     *       mule beneficiary-add burst trips K3.</li>
+     * </ul>
+     * Each write stamps a per-counter activity timestamp (read by {@link PostureLoader} to window that
+     * counter independently) and refreshes the row TTL. The increment is made idempotent per eventId via
+     * a bounded applied-event ring on the row, so committing it before the decision-row write (the
+     * exactly-once commit marker) never double-counts under a concurrent duplicate or a crash-replay.
      */
     private void commitPosture(ActionEvent event, Instant now) {
-        if (event.eventType() != EventType.TERM_DEPOSIT_BREAK
-                || !(event.payload() instanceof DepositBreakPayload deposit)) {
-            return;
+        switch (event.payload()) {
+            case DepositBreakPayload deposit -> {
+                if (event.eventType() == EventType.TERM_DEPOSIT_BREAK) {
+                    commitDepositBreakPosture(event, deposit, now);
+                }
+            }
+            case com.cy.diakritis.common.dto.LimitChangePayload limit -> {
+                if (event.eventType() == EventType.LIMIT_CHANGE) {
+                    commitLimitRaisePosture(event, limit, now);
+                }
+            }
+            case com.cy.diakritis.common.dto.BeneficiaryAddPayload ignored -> {
+                if (event.eventType() == EventType.BENEFICIARY_ADD) {
+                    commitBeneficiaryAddPosture(event, now);
+                }
+            }
+            default -> {
+                // Transfers and mass-payments do not establish kill-chain posture.
+            }
         }
+    }
+
+    private void commitDepositBreakPosture(ActionEvent event, DepositBreakPayload deposit, Instant now) {
         long principalCents = toCents(deposit.principalEur());
         long penaltyCents = deposit.penaltyEur() == null ? 0L : toCents(deposit.penaltyEur());
         long freedCents = Math.max(0L, principalCents - penaltyCents);
 
         AccountPostureItem item = accountPostureRepository.find(event.accountId())
                 .orElseGet(() -> newPosture(event.accountId()));
+        if (alreadyApplied(item, event.eventId())) {
+            return;
+        }
         item.setFundsFreedEur72hCents(item.getFundsFreedEur72hCents() + freedCents);
         item.setLastDepositBreakEpochMs(now.toEpochMilli());
-        item.setTtlEpochSec((now.toEpochMilli() + POSTURE_TTL_WINDOW_MS) / MILLIS_PER_SECOND);
+        markApplied(item, event.eventId());
+        item.setTtlEpochSec(postureTtlSec(now));
         accountPostureRepository.save(item);
+    }
+
+    private void commitLimitRaisePosture(ActionEvent event,
+                                         com.cy.diakritis.common.dto.LimitChangePayload limit, Instant now) {
+        long currentLimitCents = toCents(limit.currentLimitEur());
+        long newLimitCents = toCents(limit.newLimitEur());
+        long raisedCents = Math.max(0L, newLimitCents - currentLimitCents);
+        if (raisedCents <= 0L) {
+            // A limit reduction (or no change) creates no fresh headroom, so there is nothing for K2 to
+            // exploit; do not stamp a raise so K2 stays silent.
+            return;
+        }
+        AccountPostureItem item = accountPostureRepository.find(event.accountId())
+                .orElseGet(() -> newPosture(event.accountId()));
+        if (alreadyApplied(item, event.eventId())) {
+            return;
+        }
+        item.setLimitRaised72hCents(item.getLimitRaised72hCents() + raisedCents);
+        item.setLastLimitRaiseEpochMs(now.toEpochMilli());
+        markApplied(item, event.eventId());
+        item.setTtlEpochSec(postureTtlSec(now));
+        accountPostureRepository.save(item);
+    }
+
+    private void commitBeneficiaryAddPosture(ActionEvent event, Instant now) {
+        AccountPostureItem item = accountPostureRepository.find(event.accountId())
+                .orElseGet(() -> newPosture(event.accountId()));
+        if (alreadyApplied(item, event.eventId())) {
+            return;
+        }
+        item.setBeneficiaryAddCount72h(item.getBeneficiaryAddCount72h() + 1L);
+        item.setLastBeneficiaryAddEpochMs(now.toEpochMilli());
+        markApplied(item, event.eventId());
+        item.setTtlEpochSec(postureTtlSec(now));
+        accountPostureRepository.save(item);
+    }
+
+    /** True if this eventId's contribution has already been applied to the posture row's counters. */
+    private static boolean alreadyApplied(AccountPostureItem item, String eventId) {
+        if (eventId == null) {
+            return false;
+        }
+        java.util.List<String> applied = item.getAppliedEventIds();
+        return applied != null && applied.contains(eventId);
+    }
+
+    /** Append {@code eventId} to the row's bounded applied-event ring, trimming the oldest if over cap. */
+    private static void markApplied(AccountPostureItem item, String eventId) {
+        if (eventId == null) {
+            return;
+        }
+        java.util.List<String> applied = item.getAppliedEventIds() == null
+                ? new java.util.ArrayList<>()
+                : new java.util.ArrayList<>(item.getAppliedEventIds());
+        applied.add(eventId);
+        while (applied.size() > POSTURE_APPLIED_EVENT_CAP) {
+            applied.remove(0);
+        }
+        item.setAppliedEventIds(applied);
+    }
+
+    private static long postureTtlSec(Instant now) {
+        return (now.toEpochMilli() + POSTURE_ROW_TTL_WINDOW_MS) / MILLIS_PER_SECOND;
     }
 
     private AccountPostureItem newPosture(String accountId) {
@@ -506,7 +626,25 @@ public class DecisionService {
         if (currentVerdict == null) {
             return decision.name();
         }
-        return decision.ordinal() > currentVerdict.ordinal() ? decision.name() : currentVerdict.name();
+        // Compare by explicit severity rank, NOT Verdict.ordinal(): the enum is declared
+        // ALLOW,CONFIRM,HOLD,BLOCK,REQUIRE_APPROVAL, so REQUIRE_APPROVAL(4) outranks BLOCK(3) by
+        // ordinal — which would let a later REQUIRE_APPROVAL silently downgrade a counterparty's true
+        // worst outcome of BLOCK and corrupt the cross-account reputation that feeds future scoring.
+        return severityRank(decision) > severityRank(currentVerdict) ? decision.name() : currentVerdict.name();
+    }
+
+    /**
+     * Explicit severity ranking for a verdict, matching the engine's other severity maps
+     * (OllamaAiCoJudge.severity, X1CrossAccountReputation.severity): ALLOW &lt; CONFIRM &lt;
+     * HOLD = REQUIRE_APPROVAL &lt; BLOCK. BLOCK is the most severe and is never displaced.
+     */
+    private static int severityRank(Verdict v) {
+        return switch (v) {
+            case ALLOW -> 0;
+            case CONFIRM -> 1;
+            case HOLD, REQUIRE_APPROVAL -> 2;
+            case BLOCK -> 3;
+        };
     }
 
     private static Verdict parseVerdict(String name) {
@@ -634,11 +772,24 @@ public class DecisionService {
     private static long amountCentsOf(ActionEvent event) {
         return switch (event.payload()) {
             case com.cy.diakritis.common.dto.TransferPayload t -> toCents(t.amountEur());
-            case com.cy.diakritis.common.dto.MassPaymentPayload m -> toCents(m.totalEur());
+            // Sum the actual line items rather than trusting the client-declared totalEur, so the
+            // money-saved counter reflects the money that would really have moved.
+            case com.cy.diakritis.common.dto.MassPaymentPayload m -> batchTotalCents(m);
             case DepositBreakPayload d -> toCents(d.principalEur());
             case com.cy.diakritis.common.dto.LimitChangePayload l -> toCents(l.newLimitEur());
             case com.cy.diakritis.common.dto.BeneficiaryAddPayload ignored -> 0L;
         };
+    }
+
+    /** The batch total as the sum of the line amounts actually being executed (in euro-cents). */
+    private static long batchTotalCents(com.cy.diakritis.common.dto.MassPaymentPayload payload) {
+        long sum = 0L;
+        if (payload.items() != null) {
+            for (com.cy.diakritis.common.dto.BatchItem item : payload.items()) {
+                sum += toCents(item.amountEur());
+            }
+        }
+        return sum;
     }
 
     private static String initiatorSub(ActionEvent event, AuthPrincipal principal) {

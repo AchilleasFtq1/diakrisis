@@ -97,6 +97,12 @@ public final class ScoreEngine {
     private static final int RAW_MAX = 100;
     private static final double LIMIT_RAISE_APPROVAL_MULTIPLE = 2.0;
 
+    /**
+     * Separator for the per-line rolling-window record key ({@code eventId#itemId}). Makes each batch
+     * line a distinct, replay-stable record so the 24h window counts every line exactly once.
+     */
+    private static final String BATCH_LINE_KEY_SEPARATOR = "#";
+
     public static final String SCA_TRA_BASIS =
             "PSD2 RTS Art.18 TRA (low value, low fraud-rate)";
 
@@ -190,8 +196,9 @@ public final class ScoreEngine {
         long amountCents = amountCentsOf(event);
         long availableCents = availableBalanceCentsOf(event);
 
-        // 1. Record the current event so the rolling-window logical amount includes it.
-        runtime.record(event.accountId(), cpKey, amountCents, now.toEpochMilli());
+        // 1. Record the current event so the rolling-window logical amount includes it. Keyed by the
+        // eventId so a replayed/duplicate request does not double-count the 24h window (CI-1).
+        runtime.record(event.eventId(), event.accountId(), cpKey, amountCents, now.toEpochMilli());
         if (type == EventType.BENEFICIARY_ADD && event.context() != null) {
             runtime.recordBeneficiaryAdd(event.context().sessionId(), now.toEpochMilli());
         }
@@ -223,19 +230,20 @@ public final class ScoreEngine {
         // so a non-monetary action stays capped at CONFIRM (CI-9 holds for vulnerable accounts too).
         AccountStatsView vulnerabilityStats = store.accountStats(event.accountId());
         boolean vulnerable = vulnerabilityStats != null && vulnerabilityStats.isVulnerable();
-        Band preVulnerabilityBand = band;
-        if (vulnerable) {
-            band = escalateForVulnerability(band);
-        }
-        boolean vulnerabilityEscalated = vulnerable && band != preVulnerabilityBand;
-
-        // 7. Non-monetary cap.
-        band = Bands.capNonMonetary(band, type);
-
-        // 8. TERM_DEPOSIT_BREAK guard: force CONFIRM, drop HOLD-pinning typologies.
         boolean termDepositBreak = type == EventType.TERM_DEPOSIT_BREAK;
+        Band preVulnerabilityBand = band;
+        Band escalatedBand = vulnerable ? escalateForVulnerability(band) : band;
+
+        // 7+8. Push BOTH the escalated and the un-escalated band through the identical downstream steps
+        // (non-monetary cap, then the TERM_DEPOSIT_BREAK CONFIRM-force) so the §17 flag records an
+        // escalation only when it genuinely tightened the FINAL verdict. Otherwise a non-monetary
+        // CONFIRM that escalation pushed to HOLD — only for capNonMonetary to pull it straight back to
+        // CONFIRM — would falsely report a vulnerability escalation that had no net effect.
+        band = finalBandAfterCaps(escalatedBand, type, termDepositBreak);
+        Band unescalatedFinalBand = finalBandAfterCaps(preVulnerabilityBand, type, termDepositBreak);
+        boolean vulnerabilityEscalated = vulnerable && band != unescalatedFinalBand;
+
         if (termDepositBreak) {
-            band = Band.CONFIRM;
             typologies = dropHoldPinningTypologies(typologies);
         }
 
@@ -284,6 +292,17 @@ public final class ScoreEngine {
         };
     }
 
+    /**
+     * Apply the post-escalation band caps in the contractual order: the non-monetary cap (step 7),
+     * then the TERM_DEPOSIT_BREAK CONFIRM-force (step 8). Pulled out so the same downstream collapse is
+     * applied identically to both the escalated and the un-escalated band when deciding whether a §17
+     * vulnerability escalation actually changed the final outcome.
+     */
+    private static Band finalBandAfterCaps(Band band, EventType type, boolean termDepositBreak) {
+        Band capped = Bands.capNonMonetary(band, type);
+        return termDepositBreak ? Band.CONFIRM : capped;
+    }
+
     // --- mass-payment scoring ----------------------------------------------------------------
 
     private ScoreResult scoreMassPayment(ActionEvent event,
@@ -310,7 +329,10 @@ public final class ScoreEngine {
             String cpKey = Identity.counterpartyKey(item.counterparty());
             long amountCents = toCents(item.amountEur());
 
-            runtime.record(event.accountId(), cpKey, amountCents, now.toEpochMilli());
+            // Record this line keyed by eventId#itemId: distinct lines of a batch each count, but a
+            // replay of the whole batch does not double-count any line in the 24h window (CI-1).
+            runtime.record(event.eventId() + BATCH_LINE_KEY_SEPARATOR + item.itemId(),
+                    event.accountId(), cpKey, amountCents, now.toEpochMilli());
             long logicalAmountCents =
                     runtime.logicalAmountCents(event.accountId(), cpKey, amountCents, now.toEpochMilli());
 
@@ -362,11 +384,14 @@ public final class ScoreEngine {
             allTypologies.add(Typologies.PAYROLL_REDIRECTION);
         }
 
-        // Batch-level verdict from the worst item; business accounts route to approval.
+        // Batch-level verdict from the worst item; business accounts route to four-eyes approval — but
+        // only when that is STRICTER, never softer. A confirmed-fraud BLOCK (worst line raw ≥ 90 or
+        // two+ typologies ≥ 85) must stay a hard BLOCK: routing it to a releasable REQUIRE_APPROVAL
+        // would let a second approver release confirmed fraud, violating the stricter-only invariant.
         Verdict batchDecision = toVerdict(worstBand);
         boolean businessAccount = store.accountStats(event.accountId()) != null
                 && store.accountStats(event.accountId()).isBusinessAccount();
-        if (businessAccount) {
+        if (businessAccount && batchDecision != Verdict.BLOCK) {
             batchDecision = Verdict.REQUIRE_APPROVAL;
         } else if (batchDecision == Verdict.HOLD) {
             boolean hasApprover = store.accountStats(event.accountId()) != null

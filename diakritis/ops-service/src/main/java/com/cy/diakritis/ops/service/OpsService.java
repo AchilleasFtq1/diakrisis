@@ -135,7 +135,8 @@ public class OpsService {
     }
 
     private FeedEntry toFeedEntry(DecisionItem item) {
-        Decision decision = parseDecision(item);
+        ParsedDecision parsed = parseDecisionResult(item);
+        Decision decision = parsed.decision();
         String verdict = null;
         Integer score = null;
         List<String> typologies = null;
@@ -167,7 +168,8 @@ public class OpsService {
                 item.getLifecycleState(),
                 item.getCreatedEpochMs() > 0 ? Instant.ofEpochMilli(item.getCreatedEpochMs()) : null,
                 item.getHoldExpiresEpochMs() > 0 ? Instant.ofEpochMilli(item.getHoldExpiresEpochMs()) : null,
-                verdict, score, typologies, reasonCode, friction, eurOf(item.getAmountCents()), eventType);
+                verdict, score, typologies, reasonCode, friction, eurOf(item.getAmountCents()), eventType,
+                parsed.parseFailed());
     }
 
     /** The event type isn't a stored column; it is recovered from the audit explanation, else null. */
@@ -338,7 +340,10 @@ public class OpsService {
                     }
                     return tree;
                 } catch (JacksonException ex) {
-                    LOG.warn("Could not parse stored decision for event {}: {}", eventId, ex.toString());
+                    // Same corrupt/schema-incompatible stored decision condition as parseDecisionResult;
+                    // log at ERROR (matching DecisionService.readStored) so a systematic break is
+                    // alertable. The detail endpoint still surfaces this as a 404 to the caller.
+                    LOG.error("Corrupt stored decision for event {}: {}", eventId, ex.toString());
                     return null;
                 }
             }
@@ -499,15 +504,32 @@ public class OpsService {
     // Helpers.
     // ------------------------------------------------------------------------------------------------
 
+    /**
+     * Outcome of attempting to read a stored decision: the parsed {@link Decision} (null if it could not
+     * be read) and whether the null is due to a parse failure of a non-blank stored response (as opposed
+     * to there genuinely being no stored response). The latter distinction lets the feed surface a
+     * corrupt/schema-incompatible decision as an explicit error rather than a benign engine-less row.
+     */
+    private record ParsedDecision(Decision decision, boolean parseFailed) {
+        static final ParsedDecision ABSENT = new ParsedDecision(null, false);
+    }
+
     private Decision parseDecision(DecisionItem item) {
+        return parseDecisionResult(item).decision();
+    }
+
+    private ParsedDecision parseDecisionResult(DecisionItem item) {
         if (item.getResponseJson() == null || item.getResponseJson().isBlank()) {
-            return null;
+            return ParsedDecision.ABSENT;
         }
         try {
-            return jsonMapper.readValue(item.getResponseJson(), Decision.class);
+            return new ParsedDecision(jsonMapper.readValue(item.getResponseJson(), Decision.class), false);
         } catch (JacksonException ex) {
-            LOG.warn("Could not parse stored decision for event {}: {}", item.getEventId(), ex.toString());
-            return null;
+            // A non-blank response that fails to parse is a corrupt/schema-incompatible stored decision,
+            // not a legitimately engine-less row. Log at ERROR (matching DecisionService.readStored) so a
+            // systematic break is alertable, and flag it so the console renders an explicit error badge.
+            LOG.error("Corrupt stored decision for event {}: {}", item.getEventId(), ex.toString());
+            return new ParsedDecision(null, true);
         }
     }
 

@@ -2,6 +2,7 @@ package com.cy.diakritis.iam.web;
 
 import com.cy.diakritis.common.persistence.UserItem;
 import com.cy.diakritis.common.security.Role;
+import com.cy.diakritis.iam.service.BadRequestException;
 import com.cy.diakritis.iam.service.IssuedTokens;
 import com.cy.diakritis.iam.service.UserService;
 import com.cy.diakritis.iam.web.dto.LoginRequest;
@@ -17,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,14 +33,17 @@ import java.util.List;
  *   <li>{@code POST /auth/register} — self-service registration → 201 (409 username taken,
  *       400 weak password via bean validation).</li>
  *   <li>{@code POST /auth/login} — credential exchange → 200 with access + refresh tokens
- *       (401 bad creds, 403 disabled).</li>
+ *       (401 on bad creds or a disabled account — the two are indistinguishable by design).</li>
  *   <li>{@code POST /auth/refresh} — rotate refresh → new access + refresh (401 invalid/expired/revoked).</li>
- *   <li>{@code POST /auth/logout} — revoke a refresh token → 204 (idempotent).</li>
+ *   <li>{@code POST /auth/logout} — revoke a refresh token (body field or
+ *       {@code Authorization: Bearer <refreshToken>} header) → 204 (idempotent).</li>
  * </ul>
  */
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
+
+    private static final String BEARER_PREFIX = "Bearer ";
 
     private final UserService userService;
 
@@ -47,21 +52,34 @@ public class AuthController {
     }
 
     @Operation(summary = "Register a new user",
-            description = "Creates a user with a BCrypt-hashed password. role defaults to CUSTOMER; "
-                    + "accountId binds a CUSTOMER to an account. 409 if the username is taken; 400 on a "
-                    + "weak (too-short) password.")
+            description = "Self-service registration. Always creates a CUSTOMER (privileged roles are "
+                    + "assignable only via the ADMIN-guarded admin console); accountId binds the CUSTOMER "
+                    + "to an account. 409 if the username is taken; 400 on a weak (too-short) password; "
+                    + "422 if a non-CUSTOMER role is requested.")
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     public RegisterResponse register(@Valid @RequestBody RegisterRequest request) {
-        Role role = UserService.parseRole(request.role()).orElse(Role.CUSTOMER);
-        UserItem user = userService.register(request.username(), request.password(), role, request.accountId());
+        // SECURITY: /auth/register is public (permitAll). A caller-supplied privileged role must never
+        // be honored here — that would be an unauthenticated vertical privilege escalation. Self-service
+        // registrations are always CUSTOMER; if a non-CUSTOMER role is explicitly requested we reject it
+        // (422) rather than silently downgrading, so the contract is unambiguous.
+        Role requestedRole = UserService.parseRole(request.role()).orElse(Role.CUSTOMER);
+        if (requestedRole != Role.CUSTOMER) {
+            throw new BadRequestException(
+                    "Self-service registration may only create a CUSTOMER account; "
+                            + "privileged roles are assigned by an administrator.");
+        }
+        UserItem user = userService.register(
+                request.username(), request.password(), Role.CUSTOMER, request.accountId());
         return new RegisterResponse(user.getUserId(), user.getUsername(), UserService.primaryRole(user).name());
     }
 
     @Operation(summary = "Authenticate and mint access + refresh tokens",
             description = "Validates credentials against the persisted users (BCrypt) and returns a short-lived "
-                    + "access JWT plus an opaque, revocable refresh token. 401 on bad credentials; 403 if the "
-                    + "user is disabled. Paste the access token into the Swagger Authorize dialog.")
+                    + "access JWT plus an opaque, revocable refresh token. 401 on bad credentials OR a disabled "
+                    + "account (the two are deliberately indistinguishable so the response cannot confirm an "
+                    + "account's existence or credentials). Paste the access token into the Swagger Authorize "
+                    + "dialog.")
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         IssuedTokens tokens = userService.authenticate(request.username(), request.password());
@@ -85,12 +103,29 @@ public class AuthController {
     }
 
     @Operation(summary = "Log out (revoke a refresh token)",
-            description = "Revokes the presented refresh token so it can no longer be exchanged. Idempotent: a "
-                    + "missing or already-revoked token still returns 204.")
+            description = "Revokes the presented refresh token so it can no longer be exchanged. The token may "
+                    + "be supplied in the body field or, as a fallback, via the "
+                    + "Authorization: Bearer <refreshToken> header. Idempotent: a missing or already-revoked "
+                    + "token still returns 204.")
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@RequestBody(required = false) LogoutRequest request) {
-        String refreshToken = request == null ? null : request.refreshToken();
+    public ResponseEntity<Void> logout(@RequestBody(required = false) LogoutRequest request,
+                                       @RequestHeader(value = "Authorization", required = false)
+                                       String authorizationHeader) {
+        String bodyToken = request == null ? null : request.refreshToken();
+        // The body field is authoritative; fall back to the documented Authorization: Bearer header.
+        String refreshToken = (bodyToken != null && !bodyToken.isBlank())
+                ? bodyToken
+                : bearerToken(authorizationHeader);
         userService.logout(refreshToken);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Extract the credential from an {@code Authorization: Bearer <value>} header, or null if absent. */
+    private static String bearerToken(String authorizationHeader) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
+            return null;
+        }
+        String value = authorizationHeader.substring(BEARER_PREFIX.length()).trim();
+        return value.isBlank() ? null : value;
     }
 }

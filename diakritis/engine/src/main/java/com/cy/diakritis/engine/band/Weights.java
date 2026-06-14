@@ -94,6 +94,13 @@ public final class Weights {
     public static final int V1_BURST_PER_HOUR_SATURATION = 6;
     /** C3: server-side raised-amount retry attempts at which retry pressure saturates. */
     public static final int C3_RETRY_SATURATION = 4;
+    /**
+     * C3: the retry-pressure probing window in minutes. Retry pressure is a now-condition — a coached
+     * victim re-submitting at successively higher amounts does so within one sitting — so raises older
+     * than this window do not count toward C3 and are evicted from the per-session deque, bounding both
+     * the signal and the in-memory state.
+     */
+    public static final int C3_RETRY_WINDOW_MINUTES = 30;
     /** D1: device-age decay half-life in days (a fresh device is risky, decaying over ~30-60d). */
     public static final int D1_DEVICE_AGE_HALFLIFE_DAYS = 21;
     /** K2: limit-raise coverage saturates once the raised headroom covers this multiple of the amount. */

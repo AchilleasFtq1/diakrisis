@@ -25,7 +25,7 @@ public final class C3RetryPressure implements Signal {
     @Override
     public double value(SignalContext ctx) {
         String sessionId = ctx.event().context() == null ? null : ctx.event().context().sessionId();
-        int raises = ctx.runtime().raisedAttemptCount(sessionId);
+        int raises = ctx.runtime().raisedAttemptCount(sessionId, ctx.now().toEpochMilli());
         if (raises <= 0) {
             return 0.0;
         }

@@ -68,6 +68,14 @@ public final class M2ExemplarLoader {
             "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com",
             "anonymous.com", "mail.com", "protonmail.com", "icloud.com", "live.com");
 
+    /** Boolean flags: present means "on", they never consume a following value. */
+    private static final Set<String> BOOLEAN_FLAGS = Set.of("--recreate");
+
+    /** Value-bearing flags: each MUST be followed by exactly one non-flag value token. */
+    private static final Set<String> VALUE_FLAGS = Set.of(
+            "--csv", "--models-dir", "--qdrant-host", "--qdrant-port", "--collection",
+            "--max-exemplars", "--kdtree-out");
+
     private M2ExemplarLoader() {
     }
 
@@ -115,8 +123,16 @@ public final class M2ExemplarLoader {
         // Upsert into Qdrant (standardize + L2-normalize each vector with the production scaler).
         long pointCount = upsertToQdrant(host, port, collection, recreate, scaler, exemplars);
         System.out.printf(Locale.ROOT, "Qdrant collection '%s' now holds %d points.%n", collection, pointCount);
-        if (pointCount <= 0) {
-            throw new IllegalStateException("Qdrant collection is empty after upsert");
+        // The contract demands the Qdrant index and the KDTree parity file index the SAME exemplar set.
+        // A point count that differs from the exemplar count means the collection holds stale/orphaned
+        // vectors from a prior larger run (or lost some puts), which would silently bias the M2
+        // fraud-neighbour share — fail fast rather than letting the two backends diverge.
+        if (pointCount != exemplars.size()) {
+            throw new IllegalStateException(String.format(Locale.ROOT,
+                    "Qdrant collection '%s' holds %d points but %d exemplars were built; the index is "
+                            + "not in parity with the KDTree table (stale/orphaned points or lost upserts). "
+                            + "Re-run with --recreate to rebuild the collection cleanly.",
+                    collection, pointCount, exemplars.size()));
         }
     }
 
@@ -272,9 +288,16 @@ public final class M2ExemplarLoader {
     }
 
     /**
-     * Recreate (optional) the collection as 16-dim cosine, then upsert every exemplar as a point whose
-     * vector is the scaler-transformed (standardized + L2-normalized) feature vector and whose payload
-     * is {@code {fraud: label}}. Returns the collection's point count after the upsert.
+     * Rebuild the collection as 16-dim cosine, then upsert every exemplar as a point whose vector is the
+     * scaler-transformed (standardized + L2-normalized) feature vector and whose payload is
+     * {@code {fraud: label}}. Returns the collection's point count after the upsert.
+     *
+     * <p>Point ids are assigned sequentially from 0 on every run, so an in-place upsert against an
+     * existing collection would overwrite ids {@code 0..K-1} but leave orphaned points with id {@code >=
+     * K} from a prior, larger run — divergent from the freshly-built exemplar set and the KDTree parity
+     * table. To stay idempotent regardless of the {@code --recreate} flag we therefore ALWAYS drop the
+     * collection when it already exists before recreating and loading; {@code recreate} only affects the
+     * log wording (an explicit request vs. an implicit clean rebuild).
      */
     private static long upsertToQdrant(String host, int port, String collection, boolean recreate,
                                        M2Scaler scaler, List<Exemplar> exemplars) throws Exception {
@@ -284,10 +307,13 @@ public final class M2ExemplarLoader {
                         .build());
         try {
             boolean exists = client.collectionExistsAsync(collection).get(30, TimeUnit.SECONDS);
-            if (recreate && exists) {
+            if (exists) {
+                // Always drop: sequential ids from 0 make an in-place upsert non-idempotent (stale
+                // points with id >= the new exemplar count would survive a shrinking run).
                 client.deleteCollectionAsync(collection).get(60, TimeUnit.SECONDS);
                 exists = false;
-                System.out.printf(Locale.ROOT, "Dropped existing collection '%s'.%n", collection);
+                System.out.printf(Locale.ROOT, "Dropped existing collection '%s'%s.%n",
+                        collection, recreate ? " (--recreate)" : " for a clean rebuild");
             }
             if (!exists) {
                 VectorParams params = VectorParams.newBuilder()
@@ -382,17 +408,29 @@ public final class M2ExemplarLoader {
         return Double.toString(d);
     }
 
+    /**
+     * Parse CLI args against an allow-list, mirroring {@code BerkaEtl.Args.parse}: unknown flags and
+     * missing values are hard errors rather than being silently dropped (a silently-dropped flag such as
+     * a mistyped {@code --max-exemplar} would build a wrongly-sized exemplar index with no warning).
+     * Boolean flags ({@link #BOOLEAN_FLAGS}) take no value; value-bearing flags ({@link #VALUE_FLAGS})
+     * require exactly one following non-flag token.
+     */
     private static Map<String, String> parseArgs(String[] args) {
         Map<String, String> opts = new HashMap<>();
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             if (!arg.startsWith("--")) {
-                continue;
+                throw new IllegalArgumentException("Unexpected positional argument: " + arg);
             }
-            if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+            if (BOOLEAN_FLAGS.contains(arg)) {
+                opts.put(arg, "");
+            } else if (VALUE_FLAGS.contains(arg)) {
+                if (i + 1 >= args.length || args[i + 1].startsWith("--")) {
+                    throw new IllegalArgumentException("Missing value for " + arg);
+                }
                 opts.put(arg, args[++i]);
             } else {
-                opts.put(arg, "");
+                throw new IllegalArgumentException("Unknown argument: " + arg);
             }
         }
         return opts;

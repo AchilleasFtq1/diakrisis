@@ -7,17 +7,20 @@ import software.amazon.awssdk.enhanced.dynamodb.Expression;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.model.PutItemEnhancedRequest;
 import software.amazon.awssdk.enhanced.dynamodb.model.UpdateItemEnhancedRequest;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
+import java.util.Map;
 import java.util.Optional;
 
 /**
  * Persists and replays decision records for idempotency.
  *
  * <p>pk = {@code EVENT#<eventId>}, sk = {@code DECISION}. {@link #putIfAbsent} performs a conditional
- * put guarded by {@code attribute_not_exists(pk)}: the first writer for an {@code eventId} wins and
- * commits posture; a concurrent or replayed request loses the condition and re-reads the stored
- * record so the response body is byte-identical and no mutation is double-applied.
+ * put guarded by {@code attribute_not_exists(pk)}: the first writer for an {@code eventId} wins and the
+ * row becomes the commit-completion marker (the idempotent side-effects are committed before the put);
+ * a concurrent or replayed request loses the condition and re-reads the stored record so the response
+ * body is byte-identical and no mutation is double-applied.
  */
 @Repository
 public class DecisionRepository {
@@ -69,11 +72,39 @@ public class DecisionRepository {
         }
     }
 
-    /** Overwrite the lifecycle state (and hold expiry) of an existing decision record. */
-    public void updateLifecycle(DecisionItem item) {
-        decisionTable.updateItem(UpdateItemEnhancedRequest.builder(DecisionItem.class)
-                .item(item)
-                .ignoreNulls(true)
-                .build());
+    /**
+     * Atomically transition the lifecycle state of an existing decision record, but ONLY if the stored
+     * state still equals {@code expectedSourceState}. This is an optimistic compare-and-set: of two
+     * concurrent transitions reading the same source state, exactly one wins the conditional update and
+     * the other fails the condition — so a four-eyes action can never be EXECUTED twice, and an approve
+     * racing a reject cannot both apply. The losing caller gets a {@code false} return and must abort
+     * its side effects.
+     *
+     * <p>The DynamoDB attribute backing {@code DecisionItem.lifecycleState} is named
+     * {@value #LIFECYCLE_STATE_ATTR} (the enhanced-client default for the {@code lifecycleState}
+     * property); the condition asserts {@code lifecycleState = :expected}.
+     *
+     * @return {@code true} if this caller won the transition (the conditional update committed),
+     * {@code false} if the stored state no longer matched {@code expectedSourceState} (a concurrent
+     * transition already moved it).
+     */
+    public boolean updateLifecycle(DecisionItem item, String expectedSourceState) {
+        try {
+            decisionTable.updateItem(UpdateItemEnhancedRequest.builder(DecisionItem.class)
+                    .item(item)
+                    .ignoreNulls(true)
+                    .conditionExpression(Expression.builder()
+                            .expression("#state = :expected")
+                            .putExpressionName("#state", LIFECYCLE_STATE_ATTR)
+                            .expressionValues(Map.of(":expected",
+                                    AttributeValue.fromS(expectedSourceState)))
+                            .build())
+                    .build());
+            return true;
+        } catch (ConditionalCheckFailedException raced) {
+            return false;
+        }
     }
+
+    private static final String LIFECYCLE_STATE_ATTR = "lifecycleState";
 }

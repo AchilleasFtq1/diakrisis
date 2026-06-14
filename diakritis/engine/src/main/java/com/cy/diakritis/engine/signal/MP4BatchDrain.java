@@ -35,13 +35,27 @@ public final class MP4BatchDrain implements Signal {
         if (available <= 0) {
             return 0.0;
         }
-        long total = toCents(payload.totalEur());
+        // Derive the batch total from the actual line items rather than the client-declared totalEur:
+        // an attacker who understates totalEur could otherwise hide a full drain from MP4 while the
+        // per-line amounts still execute. The lines are the money that actually moves.
+        long total = batchTotalCents(payload);
         double fraction = (double) total / (double) available;
         double span = Weights.MP4_DRAIN_SPAN;
         if (span <= 0) {
             return 0.0;
         }
         return SignalMath.clamp01((fraction - Weights.MP4_DRAIN_FLOOR) / span);
+    }
+
+    /** The batch total as the sum of the line amounts actually being executed (in euro-cents). */
+    private static long batchTotalCents(MassPaymentPayload payload) {
+        long sum = 0L;
+        if (payload.items() != null) {
+            for (var item : payload.items()) {
+                sum += toCents(item.amountEur());
+            }
+        }
+        return sum;
     }
 
     private static long toCents(BigDecimal eur) {

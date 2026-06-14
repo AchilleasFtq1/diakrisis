@@ -64,10 +64,11 @@ public class LifecycleService {
     }
 
     /** Customer confirms a CONFIRM-banded action → executed. */
-    public LifecycleResult confirm(String eventId) {
+    public LifecycleResult confirm(String eventId, AuthPrincipal principal) {
         DecisionItem decision = require(eventId);
+        requireOwnership(principal, decision);
         requireState(decision, LifecycleState.PENDING_CONFIRM);
-        return transition(decision, LifecycleState.EXECUTED);
+        return transition(decision, LifecycleState.PENDING_CONFIRM, LifecycleState.EXECUTED);
     }
 
     /**
@@ -75,11 +76,15 @@ public class LifecycleService {
      * §9.5 {@link Outcome#CONFIRMED_SAVE}: the cooling-off hold was a true catch — the customer
      * agreed the interrupted payment was wrong and abandoned it.
      */
-    public LifecycleResult cancel(String eventId) {
+    public LifecycleResult cancel(String eventId, AuthPrincipal principal) {
         DecisionItem decision = require(eventId);
+        requireOwnership(principal, decision);
         requireOpen(decision);
-        boolean wasHeld = LifecycleState.HELD.name().equals(decision.getLifecycleState());
-        LifecycleResult result = transition(decision, LifecycleState.CANCELLED);
+        // requireOpen already asserted the stored state is a valid open lifecycle state, so valueOf is safe.
+        LifecycleState sourceState = LifecycleState.valueOf(decision.getLifecycleState());
+        boolean wasHeld = sourceState == LifecycleState.HELD;
+        LifecycleResult result = transition(decision, sourceState, LifecycleState.CANCELLED);
+        // Side effects run only after the conditional transition committed (a lost race throws above).
         if (wasHeld) {
             recordOutcome(decision, Outcome.CONFIRMED_SAVE);
         }
@@ -90,8 +95,9 @@ public class LifecycleService {
      * Release a held action after its hold has expired → executed. Before the expiry the action is
      * locked ({@code 409 LOCKED_PRE_EXPIRY}); the cooling-off hold cannot be skipped.
      */
-    public LifecycleResult release(String eventId) {
+    public LifecycleResult release(String eventId, AuthPrincipal principal) {
         DecisionItem decision = require(eventId);
+        requireOwnership(principal, decision);
         requireState(decision, LifecycleState.HELD);
         long now = Instant.now().toEpochMilli();
         if (decision.getHoldExpiresEpochMs() > 0 && now < decision.getHoldExpiresEpochMs()) {
@@ -100,7 +106,7 @@ public class LifecycleService {
         }
         // A HELD action released after its hold expired and executed unchanged is a §9.5
         // FALSE_POSITIVE: the hold interrupted a legitimate payment (a friction cost, not a catch).
-        LifecycleResult result = transition(decision, LifecycleState.EXECUTED);
+        LifecycleResult result = transition(decision, LifecycleState.HELD, LifecycleState.EXECUTED);
         recordOutcome(decision, Outcome.FALSE_POSITIVE);
         return result;
     }
@@ -118,8 +124,10 @@ public class LifecycleService {
                     "An action cannot be approved by its initiator");
         }
         CaseItem caseItem = caseRepository.findByEventId(eventId).orElse(null);
-        LifecycleResult result = transitionWithApprover(decision, LifecycleState.EXECUTED, principal, caseItem);
-        // The approver judged the four-eyes action legitimate → a labelled APPROVED outcome.
+        LifecycleResult result = transitionWithApprover(decision, LifecycleState.PENDING_APPROVAL,
+                LifecycleState.EXECUTED, principal, caseItem);
+        // The approver judged the four-eyes action legitimate → a labelled APPROVED outcome. Runs only
+        // after the conditional transition committed, so a lost approve/reject race never executes twice.
         recordOutcome(decision, Outcome.APPROVED);
         return result;
     }
@@ -134,8 +142,10 @@ public class LifecycleService {
                     "An action cannot be rejected by its initiator");
         }
         CaseItem caseItem = caseRepository.findByEventId(eventId).orElse(null);
-        LifecycleResult result = transitionWithApprover(decision, LifecycleState.REJECTED, principal, caseItem);
-        // The approver judged the four-eyes action fraudulent / unauthorised → a labelled REJECTED outcome.
+        LifecycleResult result = transitionWithApprover(decision, LifecycleState.PENDING_APPROVAL,
+                LifecycleState.REJECTED, principal, caseItem);
+        // The approver judged the four-eyes action fraudulent / unauthorised → a labelled REJECTED
+        // outcome. Runs only after the conditional transition committed.
         recordOutcome(decision, Outcome.REJECTED);
         return result;
     }
@@ -207,9 +217,9 @@ public class LifecycleService {
 
     // --- internals ----------------------------------------------------------------------------
 
-    private LifecycleResult transition(DecisionItem decision, LifecycleState target) {
-        decision.setLifecycleState(target.name());
-        decisionRepository.updateLifecycle(decision);
+    private LifecycleResult transition(DecisionItem decision, LifecycleState expectedSource,
+                                       LifecycleState target) {
+        commitTransition(decision, expectedSource, target);
         CaseItem caseItem = caseRepository.findByEventId(decision.getEventId()).orElse(null);
         if (caseItem != null) {
             caseItem.setState(target.name());
@@ -218,16 +228,33 @@ public class LifecycleService {
         return resultFor(decision, target, caseItem);
     }
 
-    private LifecycleResult transitionWithApprover(DecisionItem decision, LifecycleState target,
-                                                   AuthPrincipal principal, CaseItem caseItem) {
-        decision.setLifecycleState(target.name());
-        decisionRepository.updateLifecycle(decision);
+    private LifecycleResult transitionWithApprover(DecisionItem decision, LifecycleState expectedSource,
+                                                   LifecycleState target, AuthPrincipal principal,
+                                                   CaseItem caseItem) {
+        commitTransition(decision, expectedSource, target);
         if (caseItem != null) {
             caseItem.setState(target.name());
             caseItem.setApproverUserId(principal.userId());
             caseRepository.save(caseItem);
         }
         return resultFor(decision, target, caseItem);
+    }
+
+    /**
+     * Atomically move the decision from {@code expectedSource} to {@code target} via a conditional
+     * DynamoDB write. If a concurrent transition already moved the stored state off {@code expectedSource}
+     * (two approves, or an approve racing a reject), this caller loses the conditional check and a
+     * {@code 409 ILLEGAL_TRANSITION} is thrown BEFORE any case mutation or outcome recording — so the
+     * loser never runs its side effects and the action transitions exactly once.
+     */
+    private void commitTransition(DecisionItem decision, LifecycleState expectedSource,
+                                  LifecycleState target) {
+        decision.setLifecycleState(target.name());
+        boolean won = decisionRepository.updateLifecycle(decision, expectedSource.name());
+        if (!won) {
+            throw new ConflictException(ERR_ILLEGAL_TRANSITION,
+                    "Action is no longer " + expectedSource.name() + "; a concurrent transition won");
+        }
     }
 
     /**
@@ -285,6 +312,28 @@ public class LifecycleService {
         if (!open) {
             throw new ConflictException(ERR_ILLEGAL_TRANSITION,
                     "Action is " + state + " and cannot be cancelled");
+        }
+    }
+
+    /**
+     * Broken-object-level-authorization guard for the customer-facing transitions (confirm / cancel /
+     * release): a CUSTOMER-scoped token may only act on an action belonging to its OWN account. Without
+     * this, any authenticated customer could confirm, cancel or release another customer's pending /
+     * held action by learning its eventId (a classic IDOR). Mirrors the ownership guard already on
+     * {@code DecisionService.decide}; elevated/service roles (OPS/ADMIN/APPROVER, or a service account
+     * with no account claim) may act on any account, as the bank back-end legitimately does.
+     */
+    private static void requireOwnership(AuthPrincipal principal, DecisionItem decision) {
+        if (principal == null) {
+            throw new UnauthorizedException("Authentication required");
+        }
+        if (principal.role() == Role.CUSTOMER) {
+            String owner = decision.getAccountId();
+            if (principal.accountId() == null || owner == null
+                    || !principal.accountId().equals(owner)) {
+                throw new ForbiddenException("ACCOUNT_OWNERSHIP_REQUIRED",
+                        "This token may only act on its own account's actions");
+            }
         }
     }
 

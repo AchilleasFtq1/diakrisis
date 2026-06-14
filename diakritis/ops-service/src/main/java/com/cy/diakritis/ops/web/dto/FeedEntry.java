@@ -12,6 +12,12 @@ import java.util.List;
  * {@code reasonCode}, {@code friction}, {@code amountEur}, {@code eventType}) is parsed from the
  * stored verbatim decision response so the console can show the engine's reasoning, not just state.
  * A null engine field means it wasn't present on the stored decision (the console flags it).
+ *
+ * <p>{@code decisionUnreadable} disambiguates the two ways the engine projection can be null: a
+ * legitimately engine-less row (no stored response) versus a row whose stored response JSON failed to
+ * parse (corrupt or schema-incompatible). When {@code true}, the engine fields are null because the
+ * stored decision could not be read — the console renders an explicit error badge instead of treating
+ * it as a benign engine-less decision, so a systematic parse break is visible rather than swallowed.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record FeedEntry(
@@ -27,6 +33,7 @@ public record FeedEntry(
         String reasonCode,
         String friction,
         BigDecimal amountEur,
-        String eventType
+        String eventType,
+        boolean decisionUnreadable
 ) {
 }

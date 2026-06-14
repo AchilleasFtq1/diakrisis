@@ -27,23 +27,26 @@ public class LifecycleController {
     @Operation(summary = "Confirm a pending-confirm action",
             description = "Customer step-up: confirms a CONFIRM-banded action so it executes.")
     @PostMapping(path = "/actions/{id}/confirm", produces = MediaType.APPLICATION_JSON_VALUE)
-    public LifecycleResult confirm(@PathVariable("id") String eventId) {
-        return lifecycleService.confirm(eventId);
+    public LifecycleResult confirm(@PathVariable("id") String eventId, HttpServletRequest request) {
+        AuthPrincipal principal = CurrentPrincipal.from(request);
+        return lifecycleService.confirm(eventId, principal);
     }
 
     @Operation(summary = "Cancel a pending action",
             description = "Abandons a pending-confirm or held action without executing it.")
     @PostMapping(path = "/actions/{id}/cancel", produces = MediaType.APPLICATION_JSON_VALUE)
-    public LifecycleResult cancel(@PathVariable("id") String eventId) {
-        return lifecycleService.cancel(eventId);
+    public LifecycleResult cancel(@PathVariable("id") String eventId, HttpServletRequest request) {
+        AuthPrincipal principal = CurrentPrincipal.from(request);
+        return lifecycleService.cancel(eventId, principal);
     }
 
     @Operation(summary = "Release a held action after its hold expires",
             description = "Releases a HELD action once the hold window has elapsed. Releasing before expiry "
                     + "returns 409 LOCKED_PRE_EXPIRY.")
     @PostMapping(path = "/actions/{id}/release", produces = MediaType.APPLICATION_JSON_VALUE)
-    public LifecycleResult release(@PathVariable("id") String eventId) {
-        return lifecycleService.release(eventId);
+    public LifecycleResult release(@PathVariable("id") String eventId, HttpServletRequest request) {
+        AuthPrincipal principal = CurrentPrincipal.from(request);
+        return lifecycleService.release(eventId, principal);
     }
 
     @Operation(summary = "Approve an action requiring approval (four-eyes)",

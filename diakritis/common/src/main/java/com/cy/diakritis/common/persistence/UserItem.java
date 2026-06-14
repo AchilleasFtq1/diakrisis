@@ -24,6 +24,7 @@ public class UserItem {
     private String accountId;
     private boolean enabled;
     private long createdEpochMs;
+    private long tokenGeneration;
 
     @DynamoDbPartitionKey
     public String getPk() {
@@ -88,5 +89,19 @@ public class UserItem {
 
     public void setCreatedEpochMs(long createdEpochMs) {
         this.createdEpochMs = createdEpochMs;
+    }
+
+    /**
+     * Monotonic credential generation. Bumped whenever the user's credentials are reset or the
+     * identity is re-keyed (rename); every refresh token is bound to the generation it was minted
+     * under, so incrementing this here logically invalidates all outstanding refresh tokens in a
+     * single O(1) write without a GSI or scan over the {@code RefreshTokens} table.
+     */
+    public long getTokenGeneration() {
+        return tokenGeneration;
+    }
+
+    public void setTokenGeneration(long tokenGeneration) {
+        this.tokenGeneration = tokenGeneration;
     }
 }

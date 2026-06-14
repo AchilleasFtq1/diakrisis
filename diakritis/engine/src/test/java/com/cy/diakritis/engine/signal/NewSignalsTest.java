@@ -82,7 +82,7 @@ class NewSignalsTest {
         long base = now.toEpochMilli();
         // Six actions within a few minutes → well above one/hour.
         for (int i = 0; i < 6; i++) {
-            runtime.record("acc", "CP" + i, 10_000L, base + i * 1000L);
+            runtime.record("evt-v1-" + i, "acc", "CP" + i, 10_000L, base + i * 1000L);
         }
         ActionEvent event = Events.transfer("v1", "acc", Events.payee("CYV", null, null),
                 100, 5000, Rail.SEPA, now);
@@ -93,7 +93,7 @@ class NewSignalsTest {
 
         // A single action over a fresh runtime → not a burst.
         RuntimeState calm = new RuntimeState();
-        calm.record("acc", "CYV", 10_000L, base);
+        calm.record("evt-v1-calm", "acc", "CYV", 10_000L, base);
         SignalContext quiet = ctx(event, new FakeFeatureStore(), calm,
                 PostureView.empty(base), ObservationsView.empty(),
                 GeoResolver.unknownAll(), ReputationView.empty(), 10_000L, 500_000L);

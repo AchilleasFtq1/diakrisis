@@ -1,6 +1,7 @@
 package com.cy.diakritis.iam.web;
 
 import com.cy.diakritis.common.persistence.UserItem;
+import com.cy.diakritis.common.security.AuthPrincipal;
 import com.cy.diakritis.common.security.Role;
 import com.cy.diakritis.iam.service.BadRequestException;
 import com.cy.diakritis.iam.service.UserService;
@@ -15,6 +16,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -67,23 +69,28 @@ public class AdminUserController {
     }
 
     @Operation(summary = "Update a user",
-            description = "ADMIN only. Partial update of role / enabled / accountId (null fields unchanged).")
+            description = "ADMIN only. Partial update of role / enabled / accountId (null fields unchanged). "
+                    + "409 if it would demote/disable the calling admin or the last enabled admin.")
     @PutMapping("/{username}")
     public UserView update(@PathVariable("username") String username,
-                           @RequestBody AdminUpdateUserRequest request) {
+                           @RequestBody AdminUpdateUserRequest request,
+                           @AuthenticationPrincipal AuthPrincipal caller) {
         Role role = UserService.parseRole(request.role()).orElse(null);
-        UserItem user = userService.updateUser(username, role, request.enabled(), request.accountId());
+        UserItem user = userService.updateUser(
+                callerUsername(caller), username, role, request.enabled(), request.accountId());
         return UserView.from(user);
     }
 
     @Operation(summary = "Assign a user's role",
-            description = "ADMIN only. Replaces the user's primary role.")
+            description = "ADMIN only. Replaces the user's primary role. 409 if it would demote the "
+                    + "calling admin or the last enabled admin.")
     @PostMapping("/{username}/roles")
     public UserView assignRole(@PathVariable("username") String username,
-                               @Valid @RequestBody AssignRoleRequest request) {
+                               @Valid @RequestBody AssignRoleRequest request,
+                               @AuthenticationPrincipal AuthPrincipal caller) {
         Role role = UserService.parseRole(request.role())
                 .orElseThrow(() -> new BadRequestException("role is required"));
-        return UserView.from(userService.assignRole(username, role));
+        return UserView.from(userService.assignRole(callerUsername(caller), username, role));
     }
 
     @Operation(summary = "Reset a user's password",
@@ -103,22 +110,38 @@ public class AdminUserController {
         return UserView.from(userService.rename(username, request.newUsername()));
     }
 
-    @Operation(summary = "Disable a user", description = "ADMIN only. Disabled users cannot log in (403).")
+    @Operation(summary = "Disable a user",
+            description = "ADMIN only. Disabled users cannot log in (401). 409 if it would disable the "
+                    + "calling admin or the last enabled admin.")
     @PostMapping("/{username}/disable")
-    public UserView disable(@PathVariable("username") String username) {
-        return UserView.from(userService.setEnabled(username, false));
+    public UserView disable(@PathVariable("username") String username,
+                            @AuthenticationPrincipal AuthPrincipal caller) {
+        return UserView.from(userService.setEnabled(callerUsername(caller), username, false));
     }
 
     @Operation(summary = "Enable a user", description = "ADMIN only. Re-enables a previously disabled user.")
     @PostMapping("/{username}/enable")
-    public UserView enable(@PathVariable("username") String username) {
-        return UserView.from(userService.setEnabled(username, true));
+    public UserView enable(@PathVariable("username") String username,
+                           @AuthenticationPrincipal AuthPrincipal caller) {
+        return UserView.from(userService.setEnabled(callerUsername(caller), username, true));
     }
 
-    @Operation(summary = "Delete a user", description = "ADMIN only. 404 if the user does not exist.")
+    @Operation(summary = "Delete a user",
+            description = "ADMIN only. 404 if the user does not exist. 409 if it would delete the "
+                    + "calling admin or the last enabled admin.")
     @DeleteMapping("/{username}")
-    public ResponseEntity<Void> delete(@PathVariable("username") String username) {
-        userService.deleteUser(username);
+    public ResponseEntity<Void> delete(@PathVariable("username") String username,
+                                       @AuthenticationPrincipal AuthPrincipal caller) {
+        userService.deleteUser(callerUsername(caller), username);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * The calling admin's username. The access-token subject ({@link AuthPrincipal#userId()}) is the
+     * username (see {@code UserService.issueTokens}), which the admin endpoints key on; this is what the
+     * service compares against the target to block self-lockout. Null only if the principal is absent.
+     */
+    private static String callerUsername(AuthPrincipal caller) {
+        return caller == null ? null : caller.userId();
     }
 }
