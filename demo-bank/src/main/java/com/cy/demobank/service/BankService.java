@@ -43,7 +43,6 @@ public class BankService {
     private static final String VERDICT_ALLOW = "ALLOW";
     private static final String CHANNEL_WEB = "WEB";
     private static final String CHANNEL_MOBILE = "MOBILE_APP";
-    private static final String DEVICE_ID = "dev-1";
     private static final String PLATFORM_IOS = "IOS";
     private static final String HOME_IP = "203.0.113.7";
     private static final String ADDRESSING_IBAN = "IBAN";
@@ -197,6 +196,19 @@ public class BankService {
         if (!account.id().equals(pending.accountId()) || !ownerUser.equals(pending.ownerUser())) {
             throw new AccessDeniedException("This payment does not belong to the signed-in account.");
         }
+
+        // A term-deposit break is liquidated internally: confirming the step-up commits the break and
+        // frees the principal into the account on settlement — it does NOT debit the checking balance, so
+        // it bypasses the amount cross-check / debit that an outbound transfer goes through. The pending
+        // row carries the deposit id as its counterparty ref.
+        if ("DEPOSIT_BREAK".equals(pending.kind())) {
+            decisionClient.act(account.ownerUser(), eventId, "confirm");
+            depositRepository.markBroken(pending.counterpartyRef());
+            transactionRepository.markStatus(eventId, "Sent");
+            return new ActionResult(null, true,
+                    "Term deposit broken; the funds are settling to your account.", "TERM_DEPOSIT_BREAK");
+        }
+
         long storedCents = pending.amountCents();
         if (submittedAmountEur != null && toCents(submittedAmountEur) != storedCents) {
             throw new IllegalArgumentException("The confirmed amount does not match the payment we scored.");
@@ -281,7 +293,7 @@ public class BankService {
                 Instant.ofEpochMilli(payee.createdEpochMs()));
 
         return runTransfer("TRANSFER", account, counterparty, amountEur, rail,
-                mobileContext(eventId("transfer")), "Transfer to " + payee.displayName(),
+                mobileContext(account.id(), eventId("transfer")), "Transfer to " + payee.displayName(),
                 reference);
     }
 
@@ -297,7 +309,7 @@ public class BankService {
                 ADDRESSING_MSISDN, alias, resolvedRef, resolvedName, resolvedName, null);
 
         return runTransfer("P2P_TRANSFER", account, counterparty, amountEur, "P2P",
-                mobileContext(eventId("p2p")), "P2P to " + resolvedName + " (" + alias + ")", null);
+                mobileContext(account.id(), eventId("p2p")), "P2P to " + resolvedName + " (" + alias + ")", null);
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -321,7 +333,7 @@ public class BankService {
 
         ActionEventRequest event = new ActionEventRequest(
                 eventId("benef"), accountId, "BENEFICIARY_ADD",
-                new BeneficiaryAddPayloadDto(counterparty), webContext(eventId("benef-ctx")));
+                new BeneficiaryAddPayloadDto(counterparty), webContext(accountId, eventId("benef-ctx")));
 
         DecisionResponse decision = decisionClient.decide(account.ownerUser(), event);
         String verdict = decision.effectiveDecision();
@@ -369,22 +381,30 @@ public class BankService {
 
         ActionEventRequest event = new ActionEventRequest(
                 eventId("break"), account.id(), "TERM_DEPOSIT_BREAK", payload,
-                mobileContext(eventId("break-ctx")));
+                mobileContext(account.id(), eventId("break-ctx")));
 
         DecisionResponse decision = decisionClient.decide(account.ownerUser(), event);
         String verdict = decision.effectiveDecision();
-        // A CONFIRM is the expected normal-break verdict; for the demo we treat ALLOW or CONFIRM as
-        // "the customer confirmed", which commits the break (and the engine's freed-funds posture).
-        boolean execute = VERDICT_ALLOW.equals(verdict) || "CONFIRM".equals(verdict);
-        if (execute) {
+        // Honour the ActionResult contract: only an ALLOW executes immediately. A CONFIRM is left
+        // pending and is committed by the SCA step-up (/confirm-payment → confirmPayment); HOLD/BLOCK
+        // never execute. This mirrors how runTransfer treats a CONFIRM so the step-up flow is uniform —
+        // a break that auto-committed on CONFIRM here would render a step-up for an already-applied
+        // action (the posted amount would be 0, failing validation).
+        boolean applied = VERDICT_ALLOW.equals(verdict);
+        if (applied) {
             depositRepository.markBroken(deposit.id());
         }
-        String message = execute
-                ? "Deposit " + depositId + " broken; "
+        String message;
+        if (applied) {
+            message = "Deposit " + depositId + " broken; "
                     + deposit.principalEur().subtract(deposit.penaltyEur())
-                    + " EUR freed (settling) for " + account.id() + "."
-                : "Deposit break not applied (verdict " + verdict + ").";
-        ActionResult result = new ActionResult(decision, execute, message, "TERM_DEPOSIT_BREAK");
+                    + " EUR freed (settling) for " + account.id() + ".";
+        } else if ("CONFIRM".equals(verdict)) {
+            message = "Deposit break is awaiting step-up confirmation.";
+        } else {
+            message = "Deposit break not applied (verdict " + verdict + ").";
+        }
+        ActionResult result = new ActionResult(decision, applied, message, "TERM_DEPOSIT_BREAK");
         record(account, "DEPOSIT_BREAK", "Term deposit " + deposit.id(), deposit.id(),
                 deposit.principalEur(), null, null, result);
         return result;
@@ -410,7 +430,7 @@ public class BankService {
         CounterpartyDto counterparty = new CounterpartyDto(
                 ADDRESSING_IBAN, iban, iban, resolvedName, resolvedName == null ? "Payee" : resolvedName, null);
         return runTransfer("TRANSFER", account, counterparty, amountEur, rail,
-                mobileContext(eventId("drain")), "Transfer to new payee " + iban, reference);
+                mobileContext(account.id(), eventId("drain")), "Transfer to new payee " + iban, reference);
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -437,7 +457,7 @@ public class BankService {
                 eventId("batch"), "demo-batch", items, total, account.availableBalanceEur(), rail);
 
         ActionEventRequest event = new ActionEventRequest(
-                eventId("masspay"), account.id(), "MASS_PAYMENT", payload, webContext(eventId("masspay-ctx")));
+                eventId("masspay"), account.id(), "MASS_PAYMENT", payload, webContext(account.id(), eventId("masspay-ctx")));
 
         DecisionResponse decision = decisionClient.decide(account.ownerUser(), event);
         String verdict = decision.effectiveDecision();
@@ -497,16 +517,29 @@ public class BankService {
     // Context + id helpers.
     // ------------------------------------------------------------------------------------------------
 
-    private SessionContextDto mobileContext(String sessionId) {
+    private SessionContextDto mobileContext(String accountId, String sessionId) {
         return new SessionContextDto(
                 Instant.now(), sessionId, CHANNEL_MOBILE, HOME_IP,
-                new DeviceDto(DEVICE_ID, PLATFORM_IOS));
+                new DeviceDto(deviceFor(accountId), PLATFORM_IOS));
     }
 
-    private SessionContextDto webContext(String sessionId) {
+    private SessionContextDto webContext(String accountId, String sessionId) {
         return new SessionContextDto(
                 Instant.now(), sessionId, CHANNEL_WEB, HOME_IP,
-                new DeviceDto(DEVICE_ID, "WEB"));
+                new DeviceDto(deviceFor(accountId), "WEB"));
+    }
+
+    /**
+     * The account's seeded home device. DemoSeed registers "dev-&lt;last char&gt;" (acc-B → dev-b) as
+     * each account's familiar device, so a normal session presents a known device (low D1). Sending a
+     * single fixed device instead made every session look like a brand-new device, which tripped
+     * safe_account_scam on top of liquidation_kill_chain and pushed the kill-chain demo to BLOCK
+     * instead of the SDD's intended HOLD (the "names the scam" cooling-off, §12).
+     */
+    private static String deviceFor(String accountId) {
+        String tail = (accountId == null || accountId.isBlank())
+                ? "1" : accountId.substring(accountId.length() - 1).toLowerCase();
+        return "dev-" + tail;
     }
 
     private String eventId(String prefix) {

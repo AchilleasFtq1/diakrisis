@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -212,7 +213,11 @@ public class BankController {
     @PostMapping("/confirm-payment")
     public String confirmPayment(@RequestParam("eventId") @NotBlank String eventId,
                                  @RequestParam("account") @NotBlank String account,
-                                 @RequestParam("amount") @NotNull @Positive @Digits(integer = 19, fraction = 2) BigDecimal amount,
+                                 // A step-up may complete a non-payment action (e.g. a term-deposit break) that
+                                 // carries no transfer amount, so the form posts 0/absent. The service treats the
+                                 // posted amount as a non-authoritative cross-check against the stored, originally
+                                 // scored amount — so accept absent/zero here and let the service be the guard.
+                                 @RequestParam(value = "amount", required = false) @PositiveOrZero @Digits(integer = 19, fraction = 2) BigDecimal amount,
                                  @RequestParam(value = "to", required = false) String to,
                                  @RequestParam(value = "iban", required = false) String iban,
                                  @RequestParam(value = "bic", required = false) String bic,
@@ -230,8 +235,12 @@ public class BankController {
         // The service authorizes the account + pending event against this owner and debits the stored
         // (originally scored) amount; the posted amount is only cross-checked, never trusted as truth.
         ActionResult result = bankService.confirmPayment(owner, account, eventId, amount);
-        Receipt receipt = new Receipt(blankToNull(to), blankToNull(iban), blankToNull(bic),
-                amount, blankToNull(reference), rail == null ? "SEPA" : rail);
+        // A confirmed term-deposit break is not an outbound payment, so it has no payee/amount receipt —
+        // render the confirmation without a (misleading, zero-amount) payment-details panel.
+        Receipt receipt = "TERM_DEPOSIT_BREAK".equals(result.eventType())
+                ? null
+                : new Receipt(blankToNull(to), blankToNull(iban), blankToNull(bic),
+                        amount, blankToNull(reference), rail == null ? "SEPA" : rail);
         return verdict(model, owner, account, result, receipt);
     }
 
