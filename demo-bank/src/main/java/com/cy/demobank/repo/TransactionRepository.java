@@ -1,11 +1,13 @@
 package com.cy.demobank.repo;
 
 import com.cy.demobank.domain.Txn;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Reads/writes the {@code transactions} ledger (SQLite, via JdbcTemplate — no JPA). Every money
@@ -53,10 +55,43 @@ public class TransactionRepository {
                 t.createdEpochMs());
     }
 
-    /** Set the customer-confirmed/cancelled status on a pending transaction (by its decision event id). */
+    /**
+     * Set the customer-confirmed/cancelled status on a <em>pending</em> transaction (by its decision
+     * event id). This is a guarded, single-row state transition: the {@code status_override IS NULL}
+     * predicate blocks re-marking an already-resolved row, and the affected-row assertion surfaces both
+     * the not-found case and any unexpected multi-row case (event_id is not unique by schema, so two
+     * rows could in principle share it). Without the guard a re-submitted confirm/cancel would flip
+     * {@code applied} for every matching row, corrupting the ledger.
+     *
+     * @throws IllegalStateException if no single pending transaction matched the event id.
+     */
     public void markStatus(String eventId, String status) {
-        jdbc.update("UPDATE transactions SET status_override = ?, applied = ? WHERE event_id = ?",
+        int updated = jdbc.update(
+                "UPDATE transactions SET status_override = ?, applied = ? "
+                        + "WHERE event_id = ? AND status_override IS NULL",
                 status, "Sent".equals(status) ? 1 : 0, eventId);
+        if (updated != 1) {
+            throw new IllegalStateException(
+                    "No pending transaction to transition for event " + eventId
+                            + " (matched " + updated + " rows)");
+        }
+    }
+
+    /**
+     * Load a transaction by its Diakrisis decision event id. Used by the confirm step-up to recover the
+     * server-side amount/account/owner of the originally scored pending payment, so the client cannot
+     * substitute a different amount or replay another customer's event id. Returns the most recent match
+     * (newest first) when more than one row carries the same event id.
+     */
+    public Optional<Txn> findByEventId(String eventId) {
+        try {
+            Txn txn = jdbc.queryForObject(
+                    "SELECT * FROM transactions WHERE event_id = ? ORDER BY created_epoch_ms DESC LIMIT 1",
+                    MAPPER, eventId);
+            return Optional.ofNullable(txn);
+        } catch (EmptyResultDataAccessException ex) {
+            return Optional.empty();
+        }
     }
 
     /** Statement for one account, newest first. */

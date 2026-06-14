@@ -80,6 +80,48 @@ public class BankService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown account: " + accountId));
     }
 
+    /**
+     * Resolve an account and assert the given customer owns it. This is the service-layer authorization
+     * boundary for every per-account read/mutation: it rejects horizontal access (customer-A operating
+     * on customer-B's account) regardless of caller, so ownership is enforced even if a controller path
+     * forgets to check. A missing account is a 400 (bad input); a wrong-owner account is a 403.
+     *
+     * @throws IllegalArgumentException if the account does not exist.
+     * @throws AccessDeniedException    if it exists but is not owned by {@code ownerUser}.
+     */
+    public Account requireOwnedAccount(String accountId, String ownerUser) {
+        Account account = requireAccount(accountId);
+        if (ownerUser == null || !ownerUser.equals(account.ownerUser())) {
+            throw new AccessDeniedException("Account " + accountId + " is not accessible to the signed-in customer.");
+        }
+        return account;
+    }
+
+    /** The full statement for an account the given customer owns (newest first). */
+    public List<Txn> statement(String accountId, String ownerUser) {
+        requireOwnedAccount(accountId, ownerUser);
+        return statement(accountId);
+    }
+
+    /** The saved payees of an account the given customer owns. */
+    public List<Payee> payeesForOwner(String accountId, String ownerUser) {
+        requireOwnedAccount(accountId, ownerUser);
+        return payees(accountId);
+    }
+
+    /**
+     * Convert a euro amount to integer cents, rejecting any sub-cent (scale &gt; 2) value as a clean
+     * validation error rather than letting {@link BigDecimal#longValueExact()} throw an uncaught
+     * {@link ArithmeticException} (which surfaces as an HTTP 500). We deliberately do NOT round —
+     * silently altering the customer's stated amount would be wrong; we reject and let the caller fix it.
+     */
+    private static long toCents(BigDecimal amountEur) {
+        if (amountEur.scale() > 2) {
+            throw new IllegalArgumentException("Amount must have at most 2 decimal places.");
+        }
+        return amountEur.movePointRight(2).longValueExact();
+    }
+
     public List<Payee> payees(String accountId) {
         return payeeRepository.findByAccount(accountId);
     }
@@ -90,9 +132,17 @@ public class BankService {
 
     /** The accounts a given customer (owner) holds. */
     public List<Account> accountsForOwner(String ownerUser) {
+        if (ownerUser == null) {
+            return List.of();
+        }
         return accountRepository.findAll().stream()
                 .filter(a -> ownerUser.equals(a.ownerUser()))
                 .toList();
+    }
+
+    /** True if {@code ownerUser} is the holder of at least one real account (a valid sign-in identity). */
+    public boolean isKnownOwner(String ownerUser) {
+        return !accountsForOwner(ownerUser).isEmpty();
     }
 
     /** The full statement for an account (newest first). */
@@ -115,23 +165,71 @@ public class BankService {
     // ------------------------------------------------------------------------------------------------
 
     /**
-     * Complete a CONFIRM step-up: drive the decision-service lifecycle ({@code /actions/{id}/confirm}),
-     * debit the account, and mark the pending transaction as Sent. Throws if the action can't be
-     * confirmed (e.g. it was already resolved).
+     * Complete a CONFIRM step-up for the customer {@code ownerUser}: drive the decision-service
+     * lifecycle ({@code /actions/{id}/confirm}), debit the account, and mark the pending transaction as
+     * Sent. The amount and account that are committed are taken from the originally scored pending
+     * transaction (recovered by {@code eventId}) — never from the client — so an attacker cannot confirm
+     * a high-risk event while submitting a smaller (or unrelated) amount, nor replay another customer's
+     * event id against their own account.
+     *
+     * <p>The debit result is honored: if the balance is insufficient the transaction is NOT marked Sent;
+     * it is marked Cancelled and a non-applied result is returned, mirroring {@link #runTransfer} and
+     * {@link #massPayment}, so {@code applied=1} can never be set without an actual debit.
+     *
+     * @param submittedAmountEur the amount echoed back by the step-up form; used only to assert it equals
+     *                           the stored pending amount, not as the source of truth for the debit.
+     * @throws AccessDeniedException    if {@code accountId} is not owned by {@code ownerUser}, or the
+     *                                  pending transaction belongs to a different account/owner.
+     * @throws IllegalArgumentException if no pending transaction exists for {@code eventId}, or the
+     *                                  submitted amount does not match the stored amount.
      */
-    public ActionResult confirmPayment(String accountId, String eventId, BigDecimal amountEur) {
-        Account account = requireAccount(accountId);
+    public ActionResult confirmPayment(String ownerUser, String accountId, String eventId, BigDecimal submittedAmountEur) {
+        Account account = requireOwnedAccount(accountId, ownerUser);
+
+        // Recover the originally scored pending payment. The stored row is the single source of truth
+        // for the amount and the target account; the client's posted amount is only cross-checked.
+        Txn pending = transactionRepository.findByEventId(eventId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No payment is awaiting confirmation for this reference."));
+        if (pending.statusOverride() != null && !pending.statusOverride().isBlank()) {
+            throw new IllegalArgumentException("This payment has already been resolved.");
+        }
+        if (!account.id().equals(pending.accountId()) || !ownerUser.equals(pending.ownerUser())) {
+            throw new AccessDeniedException("This payment does not belong to the signed-in account.");
+        }
+        long storedCents = pending.amountCents();
+        if (submittedAmountEur != null && toCents(submittedAmountEur) != storedCents) {
+            throw new IllegalArgumentException("The confirmed amount does not match the payment we scored.");
+        }
+
         decisionClient.act(account.ownerUser(), eventId, "confirm");
-        if (amountEur != null && amountEur.signum() > 0) {
-            accountRepository.debitIfSufficient(account.id(), amountEur.movePointRight(2).longValueExact());
+
+        if (storedCents > 0) {
+            boolean debited = accountRepository.debitIfSufficient(account.id(), storedCents);
+            if (!debited) {
+                LOG.warn("CONFIRM for event {} but balance insufficient on {}", eventId, account.id());
+                transactionRepository.markStatus(eventId, "Cancelled");
+                return new ActionResult(null, false,
+                        "Payment confirmed but there was not enough balance to send it.", "TRANSFER");
+            }
         }
         transactionRepository.markStatus(eventId, "Sent");
         return new ActionResult(null, true, "Payment confirmed and sent.", "TRANSFER");
     }
 
-    /** Cancel a held/pending payment: drive {@code /actions/{id}/cancel} and mark it Cancelled. */
-    public void cancelPayment(String accountId, String eventId) {
-        Account account = requireAccount(accountId);
+    /** Cancel a held/pending payment owned by {@code ownerUser}: drive {@code /actions/{id}/cancel}
+     * and mark it Cancelled. The pending transaction must belong to the owned account. */
+    public void cancelPayment(String ownerUser, String accountId, String eventId) {
+        Account account = requireOwnedAccount(accountId, ownerUser);
+        Txn pending = transactionRepository.findByEventId(eventId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No payment is awaiting cancellation for this reference."));
+        if (pending.statusOverride() != null && !pending.statusOverride().isBlank()) {
+            throw new IllegalArgumentException("This payment has already been resolved.");
+        }
+        if (!account.id().equals(pending.accountId()) || !ownerUser.equals(pending.ownerUser())) {
+            throw new AccessDeniedException("This payment does not belong to the signed-in account.");
+        }
         decisionClient.act(account.ownerUser(), eventId, "cancel");
         transactionRepository.markStatus(eventId, "Cancelled");
     }
@@ -141,7 +239,7 @@ public class BankService {
                         BigDecimal amountEur, String rail, String reference, ActionResult result) {
         DecisionResponse d = result.decision();
         String scam = result.typologies().isEmpty() ? null : String.join(", ", result.typologies());
-        long cents = amountEur == null ? 0L : amountEur.movePointRight(2).longValueExact();
+        long cents = amountEur == null ? 0L : toCents(amountEur);
         transactionRepository.insert(new Txn(
                 UUID.randomUUID().toString(),
                 d == null ? null : d.eventId(), null,
@@ -161,16 +259,17 @@ public class BankService {
     // ------------------------------------------------------------------------------------------------
 
     /**
-     * Score and (on ALLOW) execute a transfer from {@code accountId} to an existing payee.
+     * Score and (on ALLOW) execute a transfer from {@code accountId} to an existing payee. The account
+     * must be owned by {@code ownerUser}.
      *
      * @param rail the payment rail (SEPA, INSTANT, INTERNAL, P2P).
      */
-    public ActionResult transfer(String accountId, String cpKey, BigDecimal amountEur, String rail) {
-        return transfer(accountId, cpKey, amountEur, rail, null);
+    public ActionResult transfer(String ownerUser, String accountId, String cpKey, BigDecimal amountEur, String rail) {
+        return transfer(ownerUser, accountId, cpKey, amountEur, rail, null);
     }
 
-    public ActionResult transfer(String accountId, String cpKey, BigDecimal amountEur, String rail, String reference) {
-        Account account = requireAccount(accountId);
+    public ActionResult transfer(String ownerUser, String accountId, String cpKey, BigDecimal amountEur, String rail, String reference) {
+        Account account = requireOwnedAccount(accountId, ownerUser);
         Payee payee = payeeRepository.find(accountId, cpKey)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown payee " + cpKey + " for " + accountId));
 
@@ -190,9 +289,9 @@ public class BankService {
     // P2P transfer — to a phone-number (MSISDN) alias, resolved to a named person.
     // ------------------------------------------------------------------------------------------------
 
-    public ActionResult p2p(String accountId, String alias, String resolvedName,
+    public ActionResult p2p(String ownerUser, String accountId, String alias, String resolvedName,
                             BigDecimal amountEur) {
-        Account account = requireAccount(accountId);
+        Account account = requireOwnedAccount(accountId, ownerUser);
         String resolvedRef = "p2p-ref-" + Integer.toHexString(alias.hashCode());
         CounterpartyDto counterparty = new CounterpartyDto(
                 ADDRESSING_MSISDN, alias, resolvedRef, resolvedName, resolvedName, null);
@@ -205,14 +304,14 @@ public class BankService {
     // Beneficiary add — score adding a new payee; on ALLOW persist it.
     // ------------------------------------------------------------------------------------------------
 
-    public ActionResult addBeneficiary(String accountId, String iban, String displayName,
+    public ActionResult addBeneficiary(String ownerUser, String accountId, String iban, String displayName,
                                        String resolvedName) {
-        return addBeneficiary(accountId, iban, null, displayName, resolvedName);
+        return addBeneficiary(ownerUser, accountId, iban, null, displayName, resolvedName);
     }
 
-    public ActionResult addBeneficiary(String accountId, String iban, String bic, String displayName,
+    public ActionResult addBeneficiary(String ownerUser, String accountId, String iban, String bic, String displayName,
                                        String resolvedName) {
-        Account account = requireAccount(accountId);
+        Account account = requireOwnedAccount(accountId, ownerUser);
         String cpKey = iban; // For the demo the counterparty key IS the IBAN/addressing value.
         if (payeeRepository.exists(accountId, cpKey)) {
             throw new IllegalArgumentException("Payee " + cpKey + " already exists for " + accountId);
@@ -254,13 +353,15 @@ public class BankService {
      * account (the decision engine's drain signal is calibrated against the real available balance), so
      * the second leg correctly trips {@code liquidation_kill_chain}.
      */
-    public ActionResult breakDeposit(String depositId) {
+    public ActionResult breakDeposit(String ownerUser, String depositId) {
         Deposit deposit = depositRepository.findById(depositId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown deposit: " + depositId));
         if (deposit.broken()) {
             throw new IllegalArgumentException("Deposit " + depositId + " is already broken");
         }
-        Account account = requireAccount(deposit.accountId());
+        // Resolve the owning account and assert the caller owns it — a deposit can only be broken by
+        // the customer who holds the account it sits against.
+        Account account = requireOwnedAccount(deposit.accountId(), ownerUser);
 
         DepositBreakPayloadDto payload = new DepositBreakPayloadDto(
                 deposit.id(), deposit.principalEur(),
@@ -298,14 +399,14 @@ public class BankService {
      * breaking the deposit this sweep to a never-seen counterparty trips the liquidation_kill_chain
      * typology → HOLD, and the balance is NOT applied.
      */
-    public ActionResult transferToNew(String accountId, String iban, String resolvedName,
+    public ActionResult transferToNew(String ownerUser, String accountId, String iban, String resolvedName,
                                       BigDecimal amountEur, String rail) {
-        return transferToNew(accountId, iban, resolvedName, amountEur, rail, null);
+        return transferToNew(ownerUser, accountId, iban, resolvedName, amountEur, rail, null);
     }
 
-    public ActionResult transferToNew(String accountId, String iban, String resolvedName,
+    public ActionResult transferToNew(String ownerUser, String accountId, String iban, String resolvedName,
                                       BigDecimal amountEur, String rail, String reference) {
-        Account account = requireAccount(accountId);
+        Account account = requireOwnedAccount(accountId, ownerUser);
         CounterpartyDto counterparty = new CounterpartyDto(
                 ADDRESSING_IBAN, iban, iban, resolvedName, resolvedName == null ? "Payee" : resolvedName, null);
         return runTransfer("TRANSFER", account, counterparty, amountEur, rail,
@@ -316,8 +417,8 @@ public class BankService {
     // Mass payment (batch) — business-style multi-line payout.
     // ------------------------------------------------------------------------------------------------
 
-    public ActionResult massPayment(String accountId, List<BatchLine> lines, String rail) {
-        Account account = requireAccount(accountId);
+    public ActionResult massPayment(String ownerUser, String accountId, List<BatchLine> lines, String rail) {
+        Account account = requireOwnedAccount(accountId, ownerUser);
         if (lines.isEmpty()) {
             throw new IllegalArgumentException("A mass payment needs at least one line");
         }
@@ -342,7 +443,7 @@ public class BankService {
         String verdict = decision.effectiveDecision();
         boolean applied = VERDICT_ALLOW.equals(verdict);
         if (applied) {
-            long totalCents = total.movePointRight(2).longValueExact();
+            long totalCents = toCents(total);
             if (!accountRepository.debitIfSufficient(account.id(), totalCents)) {
                 return new ActionResult(decision, false,
                         "Batch allowed by Diakrisis but insufficient balance to execute.", "MASS_PAYMENT");
@@ -376,7 +477,7 @@ public class BankService {
         String verdict = decision.effectiveDecision();
         boolean applied = VERDICT_ALLOW.equals(verdict);
         if (applied) {
-            long amountCents = amountEur.movePointRight(2).longValueExact();
+            long amountCents = toCents(amountEur);
             if (!accountRepository.debitIfSufficient(account.id(), amountCents)) {
                 LOG.warn("ALLOW for {} but balance insufficient on {}", label, account.id());
                 return new ActionResult(decision, false,
